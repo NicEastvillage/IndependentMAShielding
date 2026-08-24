@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "masshielding"
+description = ""
+dynamic = ["version"]
+requires-python = ">= 3.10"
+dependencies = [
+    "networkx",
+    "pygame==2.6.1"
+]
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Nicolaj Østerby Jensen", email = "noje@cs.aau.com" }
+]
+keywords = ["shielding"]

@@ -1,0 +1,151 @@
+import math
+from dataclasses import dataclass
+from typing import Dict, Iterator, List, Mapping, Optional, Tuple
+
+
+@dataclass(frozen=True, slots=True)
+class CarState:
+    id: int
+    road: int
+    pos: int
+    vel: int
+
+
+@dataclass(frozen=True, slots=True)
+class RoadNetworkState:
+    system: "RoadNetwork"
+    cars: List[CarState]
+
+    def get_successors(self, actions: List[int]) -> List["ChancedRoadNetworkState"]:
+        return self.system.get_successors(self, actions)
+
+
+@dataclass(frozen=True, slots=True)
+class ChancedRoadNetworkState:
+    chance: float
+    state: RoadNetworkState
+    system: "RoadNetwork"
+
+
+@dataclass(frozen=True, slots=True)
+class CarDef:
+    id: int
+    init_road: int
+    init_pos: int
+    init_vel: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class Arc:
+    """Visual placement of a road segment: circular arc traversed counter-clockwise."""
+    center: Tuple[float, float]
+    radius: float
+    start: float   # radians
+    sweep: float   # radians
+
+    def frame(self, t: float) -> Tuple[Tuple[float, float], float]:
+        """World position and travel heading at fraction t in [0, 1) along the arc."""
+        angle = self.start + t * self.sweep
+        return ((self.center[0] + self.radius * math.cos(angle),
+                 self.center[1] + self.radius * math.sin(angle)),
+                angle + math.pi / 2)
+
+
+@dataclass(frozen=True, slots=True)
+class RoadSegment:
+    id: int
+    length: int
+    end_left: int
+    end_right: int
+    start: int
+    arc: Optional[Arc] = None
+
+
+@dataclass(frozen=True, slots=True)
+class ChancedOutcomeAccel:
+    chance: float
+    accel: int
+
+
+class RoadNetwork:
+    def __init__(self, roads: List[RoadSegment], cars: List[CarDef], max_vel: int, min_vel: int, accel_actions: List[List[ChancedOutcomeAccel]]):
+        self.roads: List[RoadSegment] = roads
+        self.cars: List[CarDef] = cars
+        self.max_vel = max_vel
+        self.min_vel = min_vel
+        self.accel_actions = accel_actions   # Indexes are actions; Entries are lists of weighted outcome accelerations
+
+        # Validation
+        assert min_vel <= max_vel
+
+        assert len(roads) > 0
+        for i, road in enumerate(roads):
+            assert road.id == i
+            assert 0 < road.length
+            assert 0 <= road.start < len(roads)
+            assert 0 <= road.end_left < len(roads)
+            assert 0 <= road.end_right < len(roads)
+            assert road.arc is None or road.arc.radius > 0
+
+        assert len(cars) > 0
+        for i, car in enumerate(cars):
+            assert car.id == i
+            assert 0 <= car.init_road < len(roads)
+            assert 0 <= car.init_pos < roads[car.init_road].length
+            assert min_vel <= car.init_vel <= max_vel
+
+    @staticmethod
+    def create_roundabout_scenario(car_count: int = 6, road_length: int = 32, max_vel: int = 4) -> "RoadNetwork":
+        road = RoadSegment(0, road_length, 0, 0, 0, Arc((0.0, 0.0), 1.0, -math.pi / 2, 2 * math.pi))
+        init_dist = road_length / car_count
+        cars = [CarDef(i, 0, int(init_dist * i)) for i in range(car_count)]
+        accel_actions = [
+            [
+                ChancedOutcomeAccel(0.2, i - 2),
+                ChancedOutcomeAccel(0.6, i - 1),     # Acceleration is [-1..1] but with a 20% chance of +1 and 20% change of +1
+                ChancedOutcomeAccel(0.2, i - 0),
+            ]
+            for i in range(3)
+        ]
+        return RoadNetwork([road], cars, max_vel, 0, accel_actions)
+
+    def get_init_state(self) -> RoadNetworkState:
+        cars = [CarState(c.id, c.init_road, c.init_pos, c.init_vel) for c in self.cars]
+        return RoadNetworkState(self, cars)
+
+    def get_successors(self, state: RoadNetworkState, actions: List[int]) -> List[ChancedRoadNetworkState]:
+        assert len(self.cars) == len(actions)
+
+        # Partial joint successors; cars [0..i) have already been moved
+        partials: List[Tuple[float, Tuple[CarState, ...]]] = [(1.0, tuple(state.cars))]
+        for i, action in enumerate(actions):
+            expanded: Dict[Tuple[CarState, ...], float] = {}
+            for chance, cars in partials:
+                car = cars[i]
+                for outcome in self.accel_actions[action]:
+                    vel = min(max(car.vel + outcome.accel, self.min_vel), self.max_vel)
+                    for move_chance, road, pos in self._advance(car.road, car.pos, vel):
+                        new_cars = cars[:i] + (CarState(i, road, pos, vel),) + cars[i + 1:]
+                        expanded[new_cars] = expanded.get(new_cars, 0.0) + chance * outcome.chance * move_chance
+            partials = [(chance, cars) for cars, chance in expanded.items()]
+        return [ChancedRoadNetworkState(chance, RoadNetworkState(self, list(cars)), self) for chance, cars in partials]
+
+    def _advance(self, road: int, pos: int, vel: int) -> Iterator[Tuple[float, int, int]]:
+        """Yields (chance, road, pos) placements after moving `vel` cells start from (road, pos).
+
+        Segment ends are crossed at even odds between end_left and end_right (or trivially
+        when they coincide, i.e. a merge). Overshoot carries over onto the next segment.
+        """
+        segment = self.roads[road]
+        new_pos = pos + vel
+        if new_pos < segment.length:
+            yield 1.0, road, new_pos
+            return
+        remaining = new_pos - segment.length
+        ends = ((segment.end_left, 1.0),) if segment.end_left == segment.end_right else ((segment.end_left, 0.5), (segment.end_right, 0.5))
+        for end, chance in ends:
+            for sub_chance, sub_road, sub_pos in self._advance(end, 0, remaining):
+                yield chance * sub_chance, sub_road, sub_pos
+
+    def get_agent_action_count(self, state: RoadNetworkState) -> int:
+        return len(self.accel_actions)
