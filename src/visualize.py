@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 
 import pygame
 
-from src.roads import RoadNetwork, RoadNetworkState
+from roads import RoadNetwork, RoadNetworkState
 
 WINDOW_WIDTH = 1080
 WINDOW_HEIGHT = 720
