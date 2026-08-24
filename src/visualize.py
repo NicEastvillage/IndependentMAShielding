@@ -12,6 +12,10 @@ WINDOW_WIDTH = 1080
 WINDOW_HEIGHT = 720
 FPS = 8
 
+ROAD_WIDTH = 0.17
+CAR_LENGTH = 0.15
+CAR_WIDTH = 0.09
+
 BACKGROUND = (16, 18, 24)
 ASPHALT = (55, 58, 66)
 TEXT = (15, 15, 15)
@@ -58,41 +62,34 @@ def car_color(i: int, n: int) -> Tuple[int, int, int]:
 
 
 def draw_roads(surface: pygame.Surface, net: RoadNetwork, view: View):
-    two_pi = 2 * math.pi
     for segment in net.roads:
         arc = segment.arc
-        cell = arc.radius * abs(arc.sweep) / segment.length   # world units
-        half = min(1.0 * cell, 0.30 * arc.radius)            # world units
-        width = max(int(view.length(2 * half)), 1)
+        width = view.length(ROAD_WIDTH)
 
         center = view.point(arc.center)
         radius = view.length(arc.radius)
 
-        if abs(arc.sweep) >= two_pi - 1e-9:   # closed loop: draw as ring to avoid the arc seam
-            pygame.draw.circle(surface, ASPHALT, center, int(radius + width / 2), width)
+        if abs(arc.sweep) >= math.tau - 1e-9:   # closed loop: draw as ring to avoid the arc seam
+            pygame.draw.circle(surface, ASPHALT, center, int(radius + width / 2), int(width))
         else:
             # pygame.draw.arc grows the width inward, so pad the rect to center the band
             diameter = max(int(2 * radius + width), 1)
             rect = pygame.Rect(0, 0, diameter, diameter)
             rect.center = center
-            start = arc.start % two_pi   # pygame's arc angles share the world convention
-            pygame.draw.arc(surface, ASPHALT, rect, start, start + abs(arc.sweep), width)
+            start = arc.start % math.tau   # pygame's arc angles share the world convention
+            pygame.draw.arc(surface, ASPHALT, rect, start, start + abs(arc.sweep), int(width))
 
 
 def draw_cars(surface: pygame.Surface, state: RoadNetworkState, view: View, font: pygame.font.Font):
     n = len(state.cars)
     for car in state.cars:
         segment = state.system.roads[car.road]
-        arc = segment.arc
-        cell = arc.radius * abs(arc.sweep) / segment.length
-        cell *= 2   # Cars occupied the "cells" in front and behind as well
-        pos, heading = arc.frame(car.pos / segment.length)
+        pos, heading = segment.arc.frame(car.pos / segment.length)
 
-        length, width = 0.85 * cell, 0.52 * cell   # oblong along travel direction
         fx, fy = math.cos(heading), math.sin(heading)
         nx, ny = -fy, fx
-        hx, hy = fx * length * 0.5, fy * length * 0.5
-        vx, vy = nx * width * 0.5, ny * width * 0.5
+        hx, hy = fx * CAR_LENGTH * 0.5, fy * CAR_LENGTH * 0.5
+        vx, vy = nx * CAR_WIDTH * 0.5, ny * CAR_WIDTH * 0.5
         corners = [(pos[0] + hx + vx, pos[1] + hy + vy), (pos[0] - hx + vx, pos[1] - hy + vy),
                    (pos[0] - hx - vx, pos[1] - hy - vy), (pos[0] + hx - vx, pos[1] + hy - vy)]
         pygame.draw.polygon(surface, car_color(car.id, n), [view.point(c) for c in corners])
@@ -108,7 +105,8 @@ def advance(net: RoadNetwork, state: RoadNetworkState) -> RoadNetworkState:
 
 
 def main(steps: Optional[int] = None):
-    net = RoadNetwork.create_roundabout_scenario(road_length=100)
+    #net = RoadNetwork.create_roundabout_scenario(road_length=100)
+    net = RoadNetwork.create_double_roundabout_scenario()
     state = net.get_init_state()
 
     pygame.init()

@@ -109,6 +109,33 @@ class RoadNetwork:
         ]
         return RoadNetwork([road], cars, max_vel, 0, accel_actions)
 
+    @staticmethod
+    def create_double_roundabout_scenario(car_count: int = 6, road_per_roundabout: int = 32, max_vel: int = 4) -> "RoadNetwork":
+        road_dist = 2.4
+        straight_radius = 10.0
+        straight_y_offset = math.sqrt(straight_radius**2 - (road_dist / 2)**2)
+        straight_sweep = math.acos(straight_y_offset / straight_radius)
+        roads = [
+            RoadSegment(0, round(road_per_roundabout / 2), 1, 1, 1, Arc((0.0, 0.0), 1.0, -math.pi / 2, math.pi)),
+            RoadSegment(1, round(road_per_roundabout / 2), 0, 5, 0, Arc((0.0, 0.0), 1.0, math.pi / 2, math.pi)),
+            RoadSegment(2, round(road_per_roundabout / 2), 3, 4, 3, Arc((road_dist, 0.0), 1.0, -math.pi / 2, math.pi)),
+            RoadSegment(3, round(road_per_roundabout / 2), 2, 2, 2, Arc((road_dist, 0.0), 1.0, math.pi / 2, math.pi)),
+            RoadSegment(4, round(road_dist * road_per_roundabout / math.pi), 1, 1, 2, Arc((road_dist / 2, -straight_y_offset + 1.0), straight_radius, math.pi / 2 - straight_sweep, 2 * straight_sweep)),
+            RoadSegment(5, round(road_dist * road_per_roundabout / math.pi), 2, 2, 1, Arc((road_dist / 2, straight_y_offset - 1.0), straight_radius, -math.pi / 2 - straight_sweep, 2 * straight_sweep)),
+        ]
+        cars = [CarDef(i, i % len(roads), 2 + int(road_per_roundabout * i / len(roads) / 4)) for i in range(car_count)]
+        accel_actions = [
+            [
+                ChancedOutcomeAccel(0.2, i - 2),
+                ChancedOutcomeAccel(0.6, i - 1),
+                # Acceleration is [-1..1] but with a 20% chance of +1 and 20% change of +1
+                ChancedOutcomeAccel(0.2, i - 0),
+            ]
+            for i in range(3)
+        ]
+        return RoadNetwork(roads, cars, max_vel, 0, accel_actions)
+
+
     def get_init_state(self) -> RoadNetworkState:
         cars = [CarState(c.id, c.init_road, c.init_pos, c.init_vel) for c in self.cars]
         return RoadNetworkState(self, cars)
