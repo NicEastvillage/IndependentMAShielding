@@ -104,9 +104,7 @@ def advance(net: RoadNetwork, state: RoadNetworkState) -> RoadNetworkState:
     return random.choices(successors, weights=[s.chance for s in successors], k=1)[0].state
 
 
-def main(steps: Optional[int] = None):
-    #net = RoadNetwork.create_roundabout_scenario(road_length=100)
-    net = RoadNetwork.create_double_roundabout_scenario()
+def visualize(net: RoadNetwork, steps: Optional[int] = None):
     state = net.get_init_state()
 
     pygame.init()
@@ -116,9 +114,9 @@ def main(steps: Optional[int] = None):
     font = pygame.font.Font(None, 24)
     view = create_view(net, WINDOW_WIDTH, WINDOW_HEIGHT)
 
-    paused = False
+    paused = steps == 0
     step = 0
-    while steps is None or step < steps:
+    while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                 return
@@ -132,13 +130,11 @@ def main(steps: Optional[int] = None):
         if not paused:
             state = advance(net, state)
             step += 1
+            if step == steps:
+                paused = True
 
         screen.fill(BACKGROUND)
         draw_roads(screen, net, view)
         draw_cars(screen, state, view, font)
         pygame.display.flip()
         clock.tick(FPS)
-
-
-if __name__ == "__main__":
-    main()
