@@ -14,9 +14,9 @@ class CarState:
 @dataclass(frozen=True, slots=True)
 class RoadNetworkState:
     system: "RoadNetwork"
-    cars: List[CarState]
+    cars: Tuple[CarState, ...]
 
-    def get_successors(self, actions: List[int]) -> List["ChancedRoadNetworkState"]:
+    def get_successors(self, actions: Tuple[int, ...]) -> Tuple["ChancedRoadNetworkState", ...]:
         return self.system.get_successors(self, actions)
 
 
@@ -68,12 +68,12 @@ class ChancedOutcomeAccel:
 
 
 class RoadNetwork:
-    def __init__(self, roads: List[RoadSegment], cars: List[CarDef], max_vel: int, min_vel: int, accel_actions: List[List[ChancedOutcomeAccel]]):
-        self.roads: List[RoadSegment] = roads
-        self.cars: List[CarDef] = cars
+    def __init__(self, roads: Tuple[RoadSegment, ...], cars: Tuple[CarDef, ...], max_vel: int, min_vel: int, accel_actions: Tuple[Tuple[ChancedOutcomeAccel, ...], ...]):
+        self.roads: Tuple[RoadSegment, ...] = roads
+        self.cars: Tuple[CarDef, ...] = cars
         self.max_vel = max_vel
         self.min_vel = min_vel
-        self.accel_actions = accel_actions   # Indexes are actions; Entries are lists of weighted outcome accelerations
+        self.accel_actions = accel_actions   # Indexes are actions; Entries are tuples of weighted outcome accelerations
 
         # Validation
         assert min_vel <= max_vel
@@ -98,16 +98,22 @@ class RoadNetwork:
     def create_roundabout_scenario(car_count: int = 6, road_length: int = 32, max_vel: int = 4) -> "RoadNetwork":
         road = RoadSegment(0, road_length, 0, 0, 0, Arc((0.0, 0.0), 1.0, -math.pi / 2, 2 * math.pi))
         init_dist = road_length / car_count
-        cars = [CarDef(i, 0, int(init_dist * i)) for i in range(car_count)]
-        accel_actions = [
-            [
-                ChancedOutcomeAccel(0.2, i - 2),
-                ChancedOutcomeAccel(0.6, i - 1),     # Acceleration is [-1..1] but with a 20% chance of +1 and 20% change of +1
-                ChancedOutcomeAccel(0.2, i - 0),
-            ]
-            for i in range(3)
-        ]
-        return RoadNetwork([road], cars, max_vel, 0, accel_actions)
+        cars = tuple(CarDef(i, 0, int(init_dist * i)) for i in range(car_count))
+        # Acceleration is usually within [-1..1] but there is a 20% chance for a 100% increase
+        accel_actions = (
+            (
+                ChancedOutcomeAccel(0.2, -2),
+                ChancedOutcomeAccel(0.8, -1),
+            ),
+            (
+                ChancedOutcomeAccel(1.0, 0),
+            ),
+            (
+                ChancedOutcomeAccel(0.8, 1),
+                ChancedOutcomeAccel(0.2, 2),
+            )
+        )
+        return RoadNetwork((road,), cars, max_vel, 0, accel_actions)
 
     @staticmethod
     def create_double_roundabout_scenario(car_count: int = 6, road_per_roundabout: int = 32, max_vel: int = 4) -> "RoadNetwork":
@@ -115,33 +121,38 @@ class RoadNetwork:
         straight_radius = 10.0
         straight_y_offset = math.sqrt(straight_radius**2 - (road_dist / 2)**2)
         straight_sweep = math.acos(straight_y_offset / straight_radius)
-        roads = [
+        roads = (
             RoadSegment(0, round(road_per_roundabout / 2), 1, 1, 1, Arc((0.0, 0.0), 1.0, -math.pi / 2, math.pi)),
             RoadSegment(1, round(road_per_roundabout / 2), 0, 5, 0, Arc((0.0, 0.0), 1.0, math.pi / 2, math.pi)),
             RoadSegment(2, round(road_per_roundabout / 2), 3, 4, 3, Arc((road_dist, 0.0), 1.0, -math.pi / 2, math.pi)),
             RoadSegment(3, round(road_per_roundabout / 2), 2, 2, 2, Arc((road_dist, 0.0), 1.0, math.pi / 2, math.pi)),
             RoadSegment(4, round(road_dist * road_per_roundabout / math.pi), 1, 1, 2, Arc((road_dist / 2, -straight_y_offset + 1.0), straight_radius, math.pi / 2 - straight_sweep, 2 * straight_sweep)),
             RoadSegment(5, round(road_dist * road_per_roundabout / math.pi), 2, 2, 1, Arc((road_dist / 2, straight_y_offset - 1.0), straight_radius, -math.pi / 2 - straight_sweep, 2 * straight_sweep)),
-        ]
-        cars = [CarDef(i, i % len(roads), 2 + int(road_per_roundabout * i / len(roads) / 4)) for i in range(car_count)]
-        accel_actions = [
-            [
-                ChancedOutcomeAccel(0.2, i - 2),
-                ChancedOutcomeAccel(0.6, i - 1),
-                # Acceleration is [-1..1] but with a 20% chance of +1 and 20% change of +1
-                ChancedOutcomeAccel(0.2, i - 0),
-            ]
-            for i in range(3)
-        ]
+        )
+        cars = tuple(CarDef(i, i % len(roads), 2 + int(road_per_roundabout * i / len(roads) / 4)) for i in range(car_count))
+        # Acceleration is usually within [-1..1] but there is a 20% chance for a 100% increase
+        accel_actions = (
+            (
+                ChancedOutcomeAccel(0.2, -2),
+                ChancedOutcomeAccel(0.8, -1),
+            ),
+            (
+                ChancedOutcomeAccel(1.0, 0),
+            ),
+            (
+                ChancedOutcomeAccel(0.8, 1),
+                ChancedOutcomeAccel(0.2, 2),
+            )
+        )
         return RoadNetwork(roads, cars, max_vel, 0, accel_actions)
 
 
     def get_init_state(self) -> RoadNetworkState:
-        cars = [CarState(c.id, c.init_road, c.init_pos, c.init_vel) for c in self.cars]
+        cars = tuple(CarState(c.id, c.init_road, c.init_pos, c.init_vel) for c in self.cars)
         return RoadNetworkState(self, cars)
 
-    def get_successors(self, state: RoadNetworkState, actions: List[int]) -> List[ChancedRoadNetworkState]:
-        assert len(self.cars) == len(actions)
+    def get_successors(self, state: RoadNetworkState, actions: Tuple[int, ...]) -> Tuple[ChancedRoadNetworkState, ...]:
+        assert len(state.cars) == len(actions)
 
         # Partial joint successors; cars [0..i) have already been moved
         partials: List[Tuple[float, Tuple[CarState, ...]]] = [(1.0, tuple(state.cars))]
@@ -155,7 +166,7 @@ class RoadNetwork:
                         new_cars = cars[:i] + (CarState(i, road, pos, vel),) + cars[i + 1:]
                         expanded[new_cars] = expanded.get(new_cars, 0.0) + chance * outcome.chance * move_chance
             partials = [(chance, cars) for cars, chance in expanded.items()]
-        return [ChancedRoadNetworkState(chance, RoadNetworkState(self, list(cars)), self) for chance, cars in partials]
+        return tuple(ChancedRoadNetworkState(chance, RoadNetworkState(self, tuple(cars)), self) for chance, cars in partials)
 
     def _advance(self, road: int, pos: int, vel: int) -> Iterator[Tuple[float, int, int]]:
         """Yields (chance, road, pos) placements after moving `vel` cells start from (road, pos).
@@ -174,5 +185,5 @@ class RoadNetwork:
             for sub_chance, sub_road, sub_pos in self._advance(end, 0, remaining):
                 yield chance * sub_chance, sub_road, sub_pos
 
-    def get_agent_action_count(self, state: RoadNetworkState) -> int:
+    def get_agent_action_count(self, state: RoadNetworkState, agent: int) -> int:
         return len(self.accel_actions)

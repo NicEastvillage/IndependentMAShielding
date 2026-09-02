@@ -2,11 +2,12 @@ import colorsys
 import math
 import random
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Mapping
 
 import pygame
 
 from roads import RoadNetwork, RoadNetworkState
+from shield import Shield
 
 WINDOW_WIDTH = 1080
 WINDOW_HEIGHT = 720
@@ -98,13 +99,7 @@ def draw_cars(surface: pygame.Surface, state: RoadNetworkState, view: View, font
         surface.blit(label, label.get_rect(center=view.point(pos)))
 
 
-def advance(net: RoadNetwork, state: RoadNetworkState) -> RoadNetworkState:
-    actions = [random.randrange(net.get_agent_action_count(state)) for _ in net.cars]
-    successors = state.get_successors(actions)
-    return random.choices(successors, weights=[s.chance for s in successors], k=1)[0].state
-
-
-def visualize(net: RoadNetwork, steps: Optional[int] = None):
+def visualize(net: RoadNetwork, steps: Optional[int] = None, shields: Mapping[int, Shield] = {}):
     state = net.get_init_state()
 
     pygame.init()
@@ -117,18 +112,23 @@ def visualize(net: RoadNetwork, steps: Optional[int] = None):
     paused = steps == 0
     step = 0
     while True:
+        manual_step = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                 return
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
                     paused = not paused
-                if event.key == pygame.K_RIGHT and paused:
-                    state = advance(net, state)
-                    step += 1
+                if event.key == pygame.K_e:
+                    manual_step = True
+                    paused = True
 
-        if not paused:
-            state = advance(net, state)
+        if not paused or manual_step:
+
+            actions = tuple(random.randrange(net.get_agent_action_count(state, c.id)) if c.id not in shields else random.choice(shields[c.id].get_safe_actions(state)) for c in net.cars)
+            successors = state.get_successors(actions)
+            state = random.choices(successors, weights=[s.chance for s in successors], k=1)[0].state
+
             step += 1
             if step == steps:
                 paused = True
