@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TypeVar, Generic, List, Tuple, Callable
+from typing import TypeVar, Generic, Tuple, Callable
 
 STATE = TypeVar('STATE')
 ABS_STATE = TypeVar('ABS_STATE')

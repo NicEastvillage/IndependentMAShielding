@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass
-from typing import Dict, Iterator, List, Mapping, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 from systems import ChancedState, ConcurrentGame
 

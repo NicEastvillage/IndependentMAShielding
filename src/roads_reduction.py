@@ -1,10 +1,10 @@
-from typing import List, Tuple
+from typing import Tuple
 
 from roads import RoadNetworkState, RoadNetwork, CarState
-from systems import LabelledTransitionSystem, ChancedState, Normalization
+from systems import LabelledTransitionSystem, ChancedState
 
 
-class AbstractRoundaboutSystem(LabelledTransitionSystem[RoadNetwork]):
+class AbstractRoundaboutSystem(LabelledTransitionSystem[RoadNetworkState]):
     def __init__(self, roundabout: RoadNetwork, agent: int):
         self._system = roundabout
         self._pov = agent
