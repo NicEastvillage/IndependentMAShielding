@@ -1,22 +1,36 @@
+import time
 from typing import Callable, Tuple, Generic
 
 from networkx import DiGraph
 
-from systems import LabelledTransitionSystem, STATE
+from systems import LabelledTransitionSystem, ABS_STATE, STATE, Normalization
 
 
-class Shield(Generic[STATE]):
-    def __init__(self, system: LabelledTransitionSystem[STATE], agent: int, graph: DiGraph):
-        self._system = system
-        self._agent = agent
+class Shield(Generic[ABS_STATE]):
+    def get_safe_actions(self, state: ABS_STATE) -> Tuple[int, ...]:
+        raise NotImplementedError()
+
+    def with_normalizer(self, normalizer: Normalization[STATE, ABS_STATE]) -> 'Shield[STATE]':
+        return NormalizingShield(normalizer, self)
+
+
+class DGShield(Shield[ABS_STATE]):
+    def __init__(self, graph: DiGraph):
         self._graph = graph
 
-    def get_safe_actions(self, state: STATE) -> Tuple[int, ...]:
-        state = self._system._normalize(state, self._agent)   # FIXME: Not generic
-        return tuple(self._graph.nodes[act_node]['action'] for act_node in self._graph.successors(state) if self._graph.nodes[act_node]['color'] == SAFE)
+    def get_safe_actions(self, state: ABS_STATE) -> Tuple[int, ...]:
+        return tuple(self._graph.nodes[act_node]['action']
+                     for act_node in self._graph.successors(state)
+                     if self._graph.nodes[act_node]['color'] == SAFE)
 
-    def symmetric_for(self, agent: int):
-        return Shield(self._system, agent, self._graph)
+
+class NormalizingShield(Shield[STATE]):
+    def __init__(self, normalize: Normalization[STATE, ABS_STATE], shield: Shield[ABS_STATE]):
+        self._normalize = normalize
+        self._shield = shield
+
+    def get_safe_actions(self, state: ABS_STATE) -> Tuple[int, ...]:
+        return self._shield.get_safe_actions(self._normalize(state))
 
 
 UNEXPLORED = 0
@@ -25,7 +39,7 @@ SAFE_DIRTY = 2
 UNSAFE = 3
 
 
-def compute_shield(system: LabelledTransitionSystem[STATE], agent: int, safe_func: Callable) -> Shield[STATE]:
+def compute_shield(system: LabelledTransitionSystem[ABS_STATE], safe_func: Callable[[ABS_STATE], bool]) -> DGShield[STATE]:
     # The shield is computed by constructing an abstract dependency graph.
     # This implementation uses a bi-partite graph: Both states and actions appear are nodes.
     # State nodes are marked with a color: UNEXPLORED, SAFE, SAFE_DIRTY, or UNSAFE.
@@ -33,6 +47,9 @@ def compute_shield(system: LabelledTransitionSystem[STATE], agent: int, safe_fun
     # Loop invariants:
     # - If a node is colored UNEXPLORED then it is in the explore_stack.
     # - if a node is colored SAFE_DIRTY, then it is in the update_stack.
+
+    print('Computing shield...')
+    start_time = time.time()
 
     init_state = system.get_init_state()
 
@@ -42,11 +59,7 @@ def compute_shield(system: LabelledTransitionSystem[STATE], agent: int, safe_fun
     explore_stack = [init_state]
     update_stack = []
 
-    counter = 0
-
     while len(explore_stack) > 0 or len(update_stack) > 0:
-        counter += 1
-        print("counter:", counter)
         if len(update_stack) > 0:
             n = update_stack.pop()
         else:
@@ -61,7 +74,7 @@ def compute_shield(system: LabelledTransitionSystem[STATE], agent: int, safe_fun
         elif color == SAFE_DIRTY:
             # Check if any action is guaranteed safe. Transition to SAFE or UNSAFE accordingly.
             any_safe = False
-            for act in range(system.get_agent_action_count(n)):
+            for act in range(system.get_action_count(n)):
                 action_node = (n, act)
                 if g.nodes[action_node]['color'] == SAFE or g.nodes[action_node]['color'] == SAFE_DIRTY:
                     any_safe = True
@@ -80,7 +93,7 @@ def compute_shield(system: LabelledTransitionSystem[STATE], agent: int, safe_fun
         elif color == UNEXPLORED:
             # Generate successors of this state. Any new states are added to the graph and queued for exploration
             any_safe = False
-            for act in range(system.get_agent_action_count(n)):
+            for act in range(system.get_action_count(n)):
                 action_node = (n, act)
                 g.add_node(action_node, color=SAFE, action=act)
                 g.add_edge(n, action_node)
@@ -120,6 +133,7 @@ def compute_shield(system: LabelledTransitionSystem[STATE], agent: int, safe_fun
         else:
             assert False
 
+    end_time = time.time()
     safe_count, unsafe_count = 0, 0
     for n in g.nodes:
         if g.nodes[n]['color'] == SAFE:
@@ -128,6 +142,6 @@ def compute_shield(system: LabelledTransitionSystem[STATE], agent: int, safe_fun
             unsafe_count += 1
         else:
             assert False, f'Node had color {g.nodes[n]['color']} at the end of shielding'
-    print(safe_count, unsafe_count)
+    print(f'- Safe states: {safe_count}\n- Unsafe states: {unsafe_count}\n- Time (s): {end_time - start_time:0.3f}')
 
-    return Shield(system, agent, g)
+    return DGShield(g)

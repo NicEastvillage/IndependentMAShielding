@@ -5,7 +5,10 @@ from visualize import visualize
 
 
 if __name__ == '__main__':
-    net = RoadNetwork.create_roundabout_scenario(road_length=100)
+    net = RoadNetwork.create_roundabout_scenario(road_length=200)
     absnet = AbstractRoundaboutSystem(net, 0)
-    shield = compute_shield(absnet, 0, roundabout_safety(4))
-    visualize(net, steps=0, shields={agent: shield.symmetric_for(agent) for agent in range(len(net.cars))})
+    dg_shield = compute_shield(absnet, roundabout_safety(6))
+    shields = {
+        agent: dg_shield.with_normalizer(lambda state, a=agent: AbstractRoundaboutSystem.normalize(state, a)) for agent in range(len(net.cars))
+    }
+    visualize(net, steps=0, shields=shields, fps=24)

@@ -11,7 +11,6 @@ from shield import Shield
 
 WINDOW_WIDTH = 1080
 WINDOW_HEIGHT = 720
-FPS = 8
 
 ROAD_WIDTH = 0.17
 CAR_LENGTH = 0.15
@@ -99,7 +98,7 @@ def draw_cars(surface: pygame.Surface, state: RoadNetworkState, view: View, font
         surface.blit(label, label.get_rect(center=view.point(pos)))
 
 
-def visualize(net: RoadNetwork, steps: Optional[int] = None, shields: Mapping[int, Shield] = {}):
+def visualize(net: RoadNetwork, steps: Optional[int] = None, shields: Mapping[int, Shield[RoadNetworkState]] = {}, fps: int = 8):
     state = net.get_init_state()
 
     pygame.init()
@@ -137,4 +136,4 @@ def visualize(net: RoadNetwork, steps: Optional[int] = None, shields: Mapping[in
         draw_roads(screen, net, view)
         draw_cars(screen, state, view, font)
         pygame.display.flip()
-        clock.tick(FPS)
+        clock.tick(fps)
