@@ -11,6 +11,7 @@ class CarState:
     road: int
     pos: int
     vel: int
+    braking: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,7 +158,7 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
                 for outcome in self.accel_actions[action]:
                     vel = min(max(car.vel + outcome.accel, self.min_vel), self.max_vel)
                     for move_chance, road, pos in self._advance(car.road, car.pos, vel):
-                        new_cars = cars[:i] + (CarState(i, road, pos, vel),) + cars[i + 1:]
+                        new_cars = cars[:i] + (CarState(i, road, pos, vel, outcome.accel < 0),) + cars[i + 1:]
                         expanded[new_cars] = expanded.get(new_cars, 0.0) + chance * outcome.chance * move_chance
             partials = [(chance, cars) for cars, chance in expanded.items()]
         return tuple(ChancedState[RoadNetworkState](chance, RoadNetworkState(self, tuple(cars))) for chance, cars in partials)

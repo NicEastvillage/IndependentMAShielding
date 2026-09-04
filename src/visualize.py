@@ -15,10 +15,22 @@ WINDOW_HEIGHT = 720
 ROAD_WIDTH = 0.17
 CAR_LENGTH = 0.15
 CAR_WIDTH = 0.09
+WINDSHIELD_HALF_WIDTH = CAR_WIDTH * 0.42
+WINDSHIELD_FRONT = CAR_LENGTH * 0.5 * 0.55
+WINDSHIELD_BACK = CAR_LENGTH * 0.5 * 0.15
+HEADLIGHT_FRONT = CAR_LENGTH * 0.5 * 0.9
+HEADLIGHT_LATERAL = CAR_WIDTH * 0.5 * 0.8
+HEADLIGHT_RADIUS = 0.012
+BRAKE_LATERAL = CAR_WIDTH * 0.5 * 0.8
+BRAKE_REAR = CAR_LENGTH * 0.5 * 0.9
+BRAKE_RADIUS = 0.01
 
 BACKGROUND = (16, 18, 24)
-ASPHALT = (55, 58, 66)
-TEXT = (15, 15, 15)
+ASPHALT_COLOR = (55, 58, 66)
+WINDSHIELD_COLOR = (140, 190, 235)
+HEADLIGHT_COLOR = (255, 236, 160)
+BRAKE_COLOR = (220, 30, 30)
+TEXT_COLOR = (15, 15, 15)
 
 
 @dataclass(frozen=True)
@@ -70,14 +82,14 @@ def draw_roads(surface: pygame.Surface, net: RoadNetwork, view: View):
         radius = view.length(arc.radius)
 
         if abs(arc.sweep) >= math.tau - 1e-9:   # closed loop: draw as ring to avoid the arc seam
-            pygame.draw.circle(surface, ASPHALT, center, int(radius + width / 2), int(width))
+            pygame.draw.circle(surface, ASPHALT_COLOR, center, int(radius + width / 2), int(width))
         else:
             # pygame.draw.arc grows the width inward, so pad the rect to center the band
             diameter = max(int(2 * radius + width), 1)
             rect = pygame.Rect(0, 0, diameter, diameter)
             rect.center = center
             start = arc.start % math.tau   # pygame's arc angles share the world convention
-            pygame.draw.arc(surface, ASPHALT, rect, start, start + abs(arc.sweep), int(width))
+            pygame.draw.arc(surface, ASPHALT_COLOR, rect, start, start + abs(arc.sweep), int(width))
 
 
 def draw_cars(surface: pygame.Surface, state: RoadNetworkState, view: View, font: pygame.font.Font):
@@ -90,11 +102,31 @@ def draw_cars(surface: pygame.Surface, state: RoadNetworkState, view: View, font
         nx, ny = -fy, fx
         hx, hy = fx * CAR_LENGTH * 0.5, fy * CAR_LENGTH * 0.5
         vx, vy = nx * CAR_WIDTH * 0.5, ny * CAR_WIDTH * 0.5
+
+        # Body
         corners = [(pos[0] + hx + vx, pos[1] + hy + vy), (pos[0] - hx + vx, pos[1] - hy + vy),
                    (pos[0] - hx - vx, pos[1] - hy - vy), (pos[0] + hx - vx, pos[1] + hy - vy)]
         pygame.draw.polygon(surface, car_color(car.id, n), [view.point(c) for c in corners])
 
-        label = font.render(str(car.vel), True, TEXT)
+        # Windshield
+        ws = [(pos[0] + fx * WINDSHIELD_FRONT + nx * WINDSHIELD_HALF_WIDTH, pos[1] + fy * WINDSHIELD_FRONT + ny * WINDSHIELD_HALF_WIDTH),
+              (pos[0] + fx * WINDSHIELD_FRONT - nx * WINDSHIELD_HALF_WIDTH, pos[1] + fy * WINDSHIELD_FRONT - ny * WINDSHIELD_HALF_WIDTH),
+              (pos[0] + fx * WINDSHIELD_BACK - nx * WINDSHIELD_HALF_WIDTH, pos[1] + fy * WINDSHIELD_BACK - ny * WINDSHIELD_HALF_WIDTH),
+              (pos[0] + fx * WINDSHIELD_BACK + nx * WINDSHIELD_HALF_WIDTH, pos[1] + fy * WINDSHIELD_BACK + ny * WINDSHIELD_HALF_WIDTH)]
+        pygame.draw.polygon(surface, WINDSHIELD_COLOR, [view.point(c) for c in ws])
+
+        # Headlights
+        for side in (HEADLIGHT_LATERAL, -HEADLIGHT_LATERAL):
+            light = (pos[0] + fx * HEADLIGHT_FRONT + nx * side, pos[1] + fy * HEADLIGHT_FRONT + ny * side)
+            pygame.draw.circle(surface, HEADLIGHT_COLOR, view.point(light), max(int(view.length(HEADLIGHT_RADIUS)), 1))
+
+        # Brake lights
+        if car.braking:
+            for side in (BRAKE_LATERAL, -BRAKE_LATERAL):
+                rear = (pos[0] - fx * BRAKE_REAR + nx * side, pos[1] - fy * BRAKE_REAR + ny * side)
+                pygame.draw.circle(surface, BRAKE_COLOR, view.point(rear), max(int(view.length(BRAKE_RADIUS)), 1))
+
+        label = font.render(str(car.vel), True, TEXT_COLOR)
         surface.blit(label, label.get_rect(center=view.point(pos)))
 
 
