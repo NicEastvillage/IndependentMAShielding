@@ -11,7 +11,8 @@ class CarState:
     road: int
     pos: int
     vel: int
-    braking: bool = False
+    just_merged: bool
+    braking: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,7 +144,7 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
         return RoadNetwork(roads, cars, max_vel, 0, accel_actions)
 
     def get_init_state(self) -> RoadNetworkState:
-        cars = tuple(CarState(c.id, c.init_road, c.init_pos, c.init_vel) for c in self.cars)
+        cars = tuple(CarState(c.id, c.init_road, c.init_pos, c.init_vel, False, False) for c in self.cars)
         return RoadNetworkState(self, cars)
 
     def get_successors(self, state: RoadNetworkState, actions: Tuple[int, ...]) -> Tuple[ChancedState[RoadNetworkState], ...]:
@@ -157,28 +158,28 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
                 car = cars[i]
                 for outcome in self.accel_actions[action]:
                     vel = min(max(car.vel + outcome.accel, self.min_vel), self.max_vel)
-                    for move_chance, road, pos in self._advance(car.road, car.pos, vel):
-                        new_cars = cars[:i] + (CarState(i, road, pos, vel, outcome.accel < 0),) + cars[i + 1:]
+                    for move_chance, road, pos, just_merged in self._advance(car.road, car.pos, vel):
+                        new_cars = cars[:i] + (CarState(i, road, pos, vel, just_merged, outcome.accel < 0),) + cars[i + 1:]
                         expanded[new_cars] = expanded.get(new_cars, 0.0) + chance * outcome.chance * move_chance
             partials = [(chance, cars) for cars, chance in expanded.items()]
         return tuple(ChancedState[RoadNetworkState](chance, RoadNetworkState(self, tuple(cars))) for chance, cars in partials)
 
-    def _advance(self, road: int, pos: int, vel: int) -> Iterator[Tuple[float, int, int]]:
-        """Yields (chance, road, pos) placements after moving `vel` cells start from (road, pos).
+    def _advance(self, road: int, pos: int, vel: int) -> Iterator[Tuple[float, int, int, bool]]:
+        """Yields (chance, road, pos, just_merged) placements after moving `vel` cells start from (road, pos).
 
-        Segment ends are crossed at even odds between end_left and end_right (or trivially
-        when they coincide, i.e. a merge). Overshoot carries over onto the next segment.
+        Completing a segment moves the car onto the right of left exit at random.
         """
         segment = self.roads[road]
         new_pos = pos + vel
         if new_pos < segment.length:
-            yield 1.0, road, new_pos
+            yield 1.0, road, new_pos, False
             return
         remaining = new_pos - segment.length
-        ends = ((segment.end_left, 1.0),) if segment.end_left == segment.end_right else ((segment.end_left, 0.5), (segment.end_right, 0.5))
-        for end, chance in ends:
-            for sub_chance, sub_road, sub_pos in self._advance(end, 0, remaining):
-                yield chance * sub_chance, sub_road, sub_pos
+        next_segs = ((segment.end_left, 1.0),) if segment.end_left == segment.end_right else ((segment.end_left, 0.5), (segment.end_right, 0.5))
+        for next_seg, chance in next_segs:
+            just_merged = segment.end_left == segment.end_right and segment.id != self.roads[next_seg].start
+            for sub_chance, sub_road, sub_pos, jm in self._advance(next_seg, 0, remaining):
+                yield chance * sub_chance, sub_road, sub_pos, just_merged
 
     def get_agent_action_count(self, state: RoadNetworkState, agent: int) -> int:
         return len(self.accel_actions)

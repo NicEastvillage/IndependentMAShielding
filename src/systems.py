@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import Enum
 from typing import TypeVar, Generic, Tuple, Callable
 
 STATE = TypeVar('STATE')
@@ -34,3 +35,9 @@ class LabelledTransitionSystem(Generic[ABS_STATE]):
 
 
 Normalization = Callable[[STATE], ABS_STATE]
+
+
+class StateSafety(Enum):
+    UNSAFE = 0
+    SAFE = 1
+    SAFE_RELEASE = 2

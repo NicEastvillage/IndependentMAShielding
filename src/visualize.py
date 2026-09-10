@@ -153,6 +153,10 @@ def visualize(net: RoadNetwork, steps: Optional[int] = None, shields: Mapping[in
                 if event.key == pygame.K_e:
                     manual_step = True
                     paused = True
+                if event.key == pygame.K_r:
+                    paused = True
+                    state = net.get_init_state()
+
 
         if not paused or manual_step:
 
