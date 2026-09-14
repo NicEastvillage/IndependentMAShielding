@@ -158,8 +158,13 @@ class AbstractRoadNetworkSystem(LabelledTransitionSystem[RoadNetworkState]):
         )
 
         new_cars = ()
-        for i, (_, car) in enumerate(cars_by_dist):
-            new_cars += (CarState(i, car.road, car.pos, car.vel, car.just_merged, False),)
+        use_symmetry = roads[ego.road].symmetric_to is not None and roads[ego.road].symmetric_to < ego.road
+        if use_symmetry:
+            for i, (_, car) in enumerate(cars_by_dist):
+                new_cars += (CarState(i, roads[car.road].symmetric_to, car.pos, car.vel, car.just_merged, False),)
+        else:
+            for i, (_, car) in enumerate(cars_by_dist):
+                new_cars += (CarState(i, car.road, car.pos, car.vel, car.just_merged, False),)
 
         return RoadNetworkState(system, new_cars)
 

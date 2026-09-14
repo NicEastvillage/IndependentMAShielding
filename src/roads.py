@@ -55,6 +55,7 @@ class RoadSegment:
     end_left: int
     end_right: int
     start: int
+    symmetric_to: Optional[int] = None
     arc: Optional[Arc] = None
 
 
@@ -119,12 +120,12 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
         straight_y_offset = math.sqrt(straight_radius**2 - (road_dist / 2)**2)
         straight_sweep = math.acos(straight_y_offset / straight_radius)
         roads = (
-            RoadSegment(0, round(road_per_roundabout / 2), 1, 1, 1, Arc((0.0, 0.0), 1.0, -math.pi / 2, math.pi)),
-            RoadSegment(1, round(road_per_roundabout / 2), 0, 5, 0, Arc((0.0, 0.0), 1.0, math.pi / 2, math.pi)),
-            RoadSegment(2, round(road_per_roundabout / 2), 3, 4, 3, Arc((road_dist, 0.0), 1.0, -math.pi / 2, math.pi)),
-            RoadSegment(3, round(road_per_roundabout / 2), 2, 2, 2, Arc((road_dist, 0.0), 1.0, math.pi / 2, math.pi)),
-            RoadSegment(4, round(road_dist * road_per_roundabout / math.pi), 1, 1, 2, Arc((road_dist / 2, -straight_y_offset + 1.0), straight_radius, math.pi / 2 - straight_sweep, 2 * straight_sweep)),
-            RoadSegment(5, round(road_dist * road_per_roundabout / math.pi), 2, 2, 1, Arc((road_dist / 2, straight_y_offset - 1.0), straight_radius, -math.pi / 2 - straight_sweep, 2 * straight_sweep)),
+            RoadSegment(0, round(road_per_roundabout / 2), 1, 1, 1, symmetric_to=3, arc=Arc((0.0, 0.0), 1.0, -math.pi / 2, math.pi)),
+            RoadSegment(1, round(road_per_roundabout / 2), 0, 5, 0, symmetric_to=2, arc=Arc((0.0, 0.0), 1.0, math.pi / 2, math.pi)),
+            RoadSegment(2, round(road_per_roundabout / 2), 3, 4, 3, symmetric_to=1, arc=Arc((road_dist, 0.0), 1.0, -math.pi / 2, math.pi)),
+            RoadSegment(3, round(road_per_roundabout / 2), 2, 2, 2, symmetric_to=0, arc=Arc((road_dist, 0.0), 1.0, math.pi / 2, math.pi)),
+            RoadSegment(4, round(road_dist * road_per_roundabout / math.pi), 1, 1, 2, symmetric_to=5, arc=Arc((road_dist / 2, -straight_y_offset + 1.0), straight_radius, math.pi / 2 - straight_sweep, 2 * straight_sweep)),
+            RoadSegment(5, round(road_dist * road_per_roundabout / math.pi), 2, 2, 1, symmetric_to=4, arc=Arc((road_dist / 2, straight_y_offset - 1.0), straight_radius, -math.pi / 2 - straight_sweep, 2 * straight_sweep)),
         )
         cars = tuple(CarDef(i, i % len(roads), 2 + int(road_per_roundabout * i / len(roads) / 4)) for i in range(car_count))
         # Acceleration is usually within [-1..1] but there is a 20% chance for a 100% increase
