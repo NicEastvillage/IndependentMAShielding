@@ -6,8 +6,8 @@ from typing import Optional, Tuple, Mapping
 
 import pygame
 
-from roads import RoadNetwork, RoadNetworkState
-from shield import Shield
+from imashielding.roads import RoadNetwork, RoadNetworkState
+from imashielding.shield import Shield
 
 WINDOW_WIDTH = 1080
 WINDOW_HEIGHT = 720

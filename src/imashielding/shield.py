@@ -4,7 +4,7 @@ from typing import Callable, Tuple, Generic
 
 from networkx import DiGraph
 
-from systems import LabelledTransitionSystem, ABS_STATE, STATE, Normalization, StateSafety
+from imashielding.systems import LabelledTransitionSystem, ABS_STATE, STATE, Normalization, StateSafety
 
 
 class Shield(Generic[ABS_STATE]):

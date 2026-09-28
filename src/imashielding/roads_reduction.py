@@ -2,8 +2,8 @@ import heapq
 from itertools import product
 from typing import Tuple
 
-from roads import RoadNetworkState, RoadNetwork, CarState
-from systems import LabelledTransitionSystem, ChancedState, StateSafety
+from imashielding.roads import RoadNetworkState, RoadNetwork, CarState
+from imashielding.systems import LabelledTransitionSystem, ChancedState, StateSafety
 
 
 class AbstractRoundaboutSystem(LabelledTransitionSystem[RoadNetworkState]):

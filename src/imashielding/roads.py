@@ -2,7 +2,7 @@ import math
 from dataclasses import dataclass
 from typing import Dict, Iterator, List, Optional, Tuple
 
-from systems import ChancedState, ConcurrentGame
+from imashielding.systems import ChancedState, ConcurrentGame
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,8 +1,7 @@
-from roads import RoadNetwork
-from roads_reduction import AbstractRoadNetworkSystem, road_safety
-from shield import compute_shield
-from systems import StateSafety
-from visualize import visualize
+from imashielding.roads import RoadNetwork
+from imashielding.roads_reduction import AbstractRoadNetworkSystem, road_safety
+from imashielding.shield import compute_shield
+from imashielding.visualize import visualize
 
 
 if __name__ == '__main__':
