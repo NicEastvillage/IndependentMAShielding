@@ -11,6 +11,14 @@ class Shield(Generic[ABS_STATE]):
     def get_safe_actions(self, state: ABS_STATE) -> Tuple[int, ...]:
         raise NotImplementedError()
 
+    def contains(self, state: ABS_STATE) -> bool:
+        """Whether this shield has any information about `state`.
+
+        A shield synthesized on-the-fly only covers the states it actually reached during
+        synthesis. States outside that set are outside the shield's scope.
+        """
+        raise NotImplementedError()
+
     def with_normalizer(self, normalizer: Normalization[STATE, ABS_STATE]) -> 'Shield[STATE]':
         return NormalizingShield(normalizer, self)
 
@@ -24,14 +32,20 @@ class DGShield(Shield[ABS_STATE]):
                      for act_node in self._graph.successors(state)
                      if self._graph.nodes[act_node]['color'] == NodeColor.SAFE)
 
+    def contains(self, state: ABS_STATE) -> bool:
+        return state in self._graph.nodes
+
 
 class NormalizingShield(Shield[STATE]):
     def __init__(self, normalize: Normalization[STATE, ABS_STATE], shield: Shield[ABS_STATE]):
         self._normalize = normalize
         self._shield = shield
 
-    def get_safe_actions(self, state: ABS_STATE) -> Tuple[int, ...]:
+    def get_safe_actions(self, state: STATE) -> Tuple[int, ...]:
         return self._shield.get_safe_actions(self._normalize(state))
+
+    def contains(self, state: STATE) -> bool:
+        return self._shield.contains(self._normalize(state))
 
 
 class NodeColor(Enum):

@@ -94,7 +94,7 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
 
     @staticmethod
     def create_roundabout_scenario(car_count: int = 6, road_length: int = 32, max_vel: int = 4) -> "RoadNetwork":
-        road = RoadSegment(0, road_length, 0, 0, 0, Arc((0.0, 0.0), 1.0, -math.pi / 2, 2 * math.pi))
+        road = RoadSegment(0, road_length, 0, 0, 0, None, Arc((0.0, 0.0), 1.0, -math.pi / 2, 2 * math.pi))
         init_dist = road_length / car_count
         cars = tuple(CarDef(i, 0, int(init_dist * i)) for i in range(car_count))
         # Acceleration is usually within [-1..1] but there is a 20% chance for a 100% increase

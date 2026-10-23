@@ -160,7 +160,8 @@ def visualize(net: RoadNetwork, steps: Optional[int] = None, shields: Mapping[in
 
         if not paused or manual_step:
 
-            actions = tuple(random.randrange(net.get_agent_action_count(state, c.id)) if c.id not in shields else random.choice(shields[c.id].get_safe_actions(state)) for c in net.cars)
+            actions = tuple(random.choice(shields[c.id].get_safe_actions(state)) if shields and c.id in shields else random.randrange(net.get_agent_action_count(state, c.id))
+                            for c in net.cars)
             successors = state.get_successors(actions)
             state = random.choices(successors, weights=[s.chance for s in successors], k=1)[0].state
 
