@@ -2,12 +2,15 @@ import colorsys
 import math
 import random
 from dataclasses import dataclass
-from typing import Optional, Tuple, Mapping
+from typing import Callable, Optional, Tuple, Mapping
 
 import pygame
 
 from imashielding.roads import RoadNetwork, RoadNetworkState
 from imashielding.shield import Shield
+
+ShieldAssignment = Mapping[int, Shield[RoadNetworkState]]
+ActionPolicy = Callable[[ShieldAssignment, RoadNetworkState], Tuple[int, ...]]
 
 WINDOW_WIDTH = 1080
 WINDOW_HEIGHT = 720
@@ -130,7 +133,31 @@ def draw_cars(surface: pygame.Surface, state: RoadNetworkState, view: View, font
         surface.blit(label, label.get_rect(center=view.point(pos)))
 
 
-def visualize(net: RoadNetwork, steps: Optional[int] = None, shields: Mapping[int, Shield[RoadNetworkState]] = {}, fps: int = 8):
+def visualize(
+    net: RoadNetwork,
+    steps: Optional[int] = None,
+    shields: ShieldAssignment = {},
+    fps: int = 8,
+    policy: Optional[ActionPolicy] = None,
+):
+    """Visualize a road network while it evolves.
+
+    Args:
+        net: Road network to visualize.
+        steps: If given, pause after this many steps. ``steps=0`` starts paused.
+        shields: Mapping from car id to shield. Used for agents without a policy,
+            and for all agents when no policy is given. Map to nothing for no shield.
+        fps: Frames per second.
+        policy: Optional callable ``policy(state) -> tuple[int, ...]``
+            returning one action per car. When given, it replaces the random/shield
+            action selection for every agent. ``action_fn`` is an alias for ``policy``.
+
+    Controls: space pauses, `e` single-steps, `r` resets, `esc` quits.
+    """
+
+    if shields is None:
+        shields = {}
+
     state = net.get_init_state()
 
     pygame.init()
@@ -146,6 +173,7 @@ def visualize(net: RoadNetwork, steps: Optional[int] = None, shields: Mapping[in
         manual_step = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                pygame.quit()
                 return
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
@@ -156,12 +184,20 @@ def visualize(net: RoadNetwork, steps: Optional[int] = None, shields: Mapping[in
                 if event.key == pygame.K_r:
                     paused = True
                     state = net.get_init_state()
-
+                    step = 0
 
         if not paused or manual_step:
-
-            actions = tuple(random.choice(shields[c.id].get_safe_actions(state)) if shields and c.id in shields else random.randrange(net.get_agent_action_count(state, c.id))
-                            for c in net.cars)
+            # FIXME: If any agent has a policy, all of them must have a policy. Use mapping similar to shields?
+            if policy is not None:
+                actions = tuple(int(a) for a in policy(shields, state))
+            else:
+                # Random action allowed by shield
+                actions = tuple(
+                    random.choice(shields[car.id].get_safe_actions(state))
+                    if car.id in shields
+                    else random.randrange(net.get_agent_action_count(state, car.id))
+                    for car in net.cars
+                )
             successors = state.get_successors(actions)
             state = random.choices(successors, weights=[s.chance for s in successors], k=1)[0].state
 
