@@ -148,9 +148,10 @@ def visualize(
         shields: Mapping from car id to shield. Used for agents without a policy,
             and for all agents when no policy is given. Map to nothing for no shield.
         fps: Frames per second.
-        policy: Optional callable ``policy(state) -> tuple[int, ...]``
+        policy: Optional callable ``policy(shields, state) -> tuple[int, ...]``
             returning one action per car. When given, it replaces the random/shield
-            action selection for every agent. ``action_fn`` is an alias for ``policy``.
+            action selection for every agent. The ``shields`` mapping is passed
+            through unchanged so a policy can ignore it.
 
     Controls: space pauses, `e` single-steps, `r` resets, `esc` quits.
     """
