@@ -7,6 +7,7 @@ from typing import Callable, Optional, Tuple, Mapping
 import pygame
 
 from imashielding.roads import RoadNetwork, RoadNetworkState
+from imashielding.shapes import Arc, Straight
 from imashielding.shield import Shield
 
 ShieldAssignment = Mapping[int, Shield[RoadNetworkState]]
@@ -55,7 +56,7 @@ def create_view(net: RoadNetwork, window_width: int, window_height: int) -> View
     xs, ys = [], []
     for segment in net.roads:
         for i in range(65):
-            (x, y), _ = segment.arc.frame(i / 64)
+            (x, y), _ = segment.shape.frame(i / 64)
             xs.append(x)
             ys.append(y)
 
@@ -77,29 +78,38 @@ def car_color(i: int, n: int) -> Tuple[int, int, int]:
 
 
 def draw_roads(surface: pygame.Surface, net: RoadNetwork, view: View):
+    width = view.length(ROAD_WIDTH)
     for segment in net.roads:
-        arc = segment.arc
-        width = view.length(ROAD_WIDTH)
+        match segment.shape:
+            case Arc():
+                arc = segment.shape
 
-        center = view.point(arc.center)
-        radius = view.length(arc.radius)
+                center = view.point(arc.center)
+                radius = view.length(arc.radius)
 
-        if abs(arc.sweep) >= math.tau - 1e-9:   # closed loop: draw as ring to avoid the arc seam
-            pygame.draw.circle(surface, ASPHALT_COLOR, center, int(radius + width / 2), int(width))
-        else:
-            # pygame.draw.arc grows the width inward, so pad the rect to center the band
-            diameter = max(int(2 * radius + width), 1)
-            rect = pygame.Rect(0, 0, diameter, diameter)
-            rect.center = center
-            start = arc.start % math.tau   # pygame's arc angles share the world convention
-            pygame.draw.arc(surface, ASPHALT_COLOR, rect, start, start + abs(arc.sweep), int(width))
+                if abs(arc.sweep) >= math.tau - 1e-9:   # closed loop: draw as ring to avoid the arc seam
+                    pygame.draw.circle(surface, ASPHALT_COLOR, center, int(radius + width / 2), int(width))
+                else:
+                    # pygame.draw.arc grows the width inward, so pad the rect to center the band
+                    diameter = max(int(2 * radius + width), 1)
+                    rect = pygame.Rect(0, 0, diameter, diameter)
+                    rect.center = center
+                    # Pygame's arc angles share the world convention
+                    # If sweep is negative, it is clockwise
+                    start, sweep = (arc.start % math.tau, arc.sweep % math.tau) if arc.sweep >= 0 else ((arc.start + arc.sweep) % math.tau, -arc.sweep)
+                    pygame.draw.arc(surface, ASPHALT_COLOR, rect, start, start + abs(sweep), int(width))
+            case Straight():
+                straight = segment.shape
+                start = view.point(straight.start)
+                end = view.point(straight.end)
+                pygame.draw.line(surface, ASPHALT_COLOR, start, end, int(width))
 
 
 def draw_cars(surface: pygame.Surface, system: RoadNetwork, state: RoadNetworkState, view: View, font: pygame.font.Font):
     n = len(state.cars)
     for car in state.cars:
         segment = system.roads[car.road]
-        pos, heading = segment.arc.frame(car.pos / segment.length)
+        pos, heading = segment.shape.frame(car.pos / segment.length)
 
         fx, fy = math.cos(heading), math.sin(heading)
         nx, ny = -fy, fx

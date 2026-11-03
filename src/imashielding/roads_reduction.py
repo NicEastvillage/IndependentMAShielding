@@ -159,7 +159,7 @@ class AbstractRoadNetworkSystem(LabelledTransitionSystem[AbstractRoadNetworkStat
         return AbstractRoadNetworkState(new_cars)
 
 
-def road_safety(min_dist: int = 3, merge_space: int = 8):
+def road_safety(system: RoadNetwork, min_dist: int = 3, merge_space: int = 8):
     def func(state: RoadNetworkState) -> StateSafety:
         if len(state.cars) <= 1:
             return StateSafety.SAFE
@@ -195,8 +195,8 @@ def road_safety(min_dist: int = 3, merge_space: int = 8):
                         somebody_else_messed_up = True
                 else:
                     # Assumption: Road segments are longer than merge_space
-                    behind_road = state.system.roads[behind_car.road]
-                    front_road = state.system.roads[front_car.road]
+                    behind_road = system.roads[behind_car.road]
+                    front_road = system.roads[front_car.road]
                     if front_car.pos <= merge_space:
                         continue
                     if front_road.start != behind_road.id:
@@ -217,7 +217,7 @@ def road_safety(min_dist: int = 3, merge_space: int = 8):
                         somebody_else_messed_up = True
                 else:
                     # Assumption: Road segments are longer than min_dist
-                    behind_road = state.system.roads[behind_car.road]
+                    behind_road = system.roads[behind_car.road]
                     seg_remaining = behind_road.length - behind_car.pos
                     if seg_remaining <= min_dist:
                         continue

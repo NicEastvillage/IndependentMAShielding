@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from imashielding.systems import ChancedState, ConcurrentGame
+from imashielding.shapes import Shape, Arc, Straight
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,22 +30,6 @@ class CarDef:
 
 
 @dataclass(frozen=True, slots=True)
-class Arc:
-    """Visual placement of a road segment: circular arc traversed counter-clockwise."""
-    center: Tuple[float, float]
-    radius: float
-    start: float   # radians
-    sweep: float   # radians
-
-    def frame(self, t: float) -> Tuple[Tuple[float, float], float]:
-        """World position and travel heading at fraction t in [0, 1) along the arc."""
-        angle = self.start + t * self.sweep
-        return ((self.center[0] + self.radius * math.cos(angle),
-                 self.center[1] + self.radius * math.sin(angle)),
-                angle + math.pi / 2)
-
-
-@dataclass(frozen=True, slots=True)
 class RoadSegment:
     id: int
     length: int
@@ -52,7 +37,7 @@ class RoadSegment:
     end_right: int
     start: int
     symmetric_to: Optional[int] = None
-    arc: Optional[Arc] = None
+    shape: Optional[Shape] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +64,6 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
             assert 0 <= road.start < len(roads)
             assert 0 <= road.end_left < len(roads)
             assert 0 <= road.end_right < len(roads)
-            assert road.arc is None or road.arc.radius > 0
 
         assert len(cars) > 0
         for i, car in enumerate(cars):
@@ -116,12 +100,12 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
         straight_y_offset = math.sqrt(straight_radius**2 - (road_dist / 2)**2)
         straight_sweep = math.acos(straight_y_offset / straight_radius)
         roads = (
-            RoadSegment(0, round(road_per_roundabout / 2), 1, 1, 1, symmetric_to=3, arc=Arc((0.0, 0.0), 1.0, -math.pi / 2, math.pi)),
-            RoadSegment(1, round(road_per_roundabout / 2), 0, 5, 0, symmetric_to=2, arc=Arc((0.0, 0.0), 1.0, math.pi / 2, math.pi)),
-            RoadSegment(2, round(road_per_roundabout / 2), 3, 4, 3, symmetric_to=1, arc=Arc((road_dist, 0.0), 1.0, -math.pi / 2, math.pi)),
-            RoadSegment(3, round(road_per_roundabout / 2), 2, 2, 2, symmetric_to=0, arc=Arc((road_dist, 0.0), 1.0, math.pi / 2, math.pi)),
-            RoadSegment(4, round(road_dist * road_per_roundabout / math.pi), 1, 1, 2, symmetric_to=5, arc=Arc((road_dist / 2, -straight_y_offset + 1.0), straight_radius, math.pi / 2 - straight_sweep, 2 * straight_sweep)),
-            RoadSegment(5, round(road_dist * road_per_roundabout / math.pi), 2, 2, 1, symmetric_to=4, arc=Arc((road_dist / 2, straight_y_offset - 1.0), straight_radius, -math.pi / 2 - straight_sweep, 2 * straight_sweep)),
+            RoadSegment(0, round(road_per_roundabout / 2), 1, 1, 1, symmetric_to=3, shape=Arc((0.0, 0.0), 1.0, -math.pi / 2, math.pi)),
+            RoadSegment(1, round(road_per_roundabout / 2), 0, 5, 0, symmetric_to=2, shape=Arc((0.0, 0.0), 1.0, math.pi / 2, math.pi)),
+            RoadSegment(2, round(road_per_roundabout / 2), 3, 4, 3, symmetric_to=1, shape=Arc((road_dist, 0.0), 1.0, -math.pi / 2, math.pi)),
+            RoadSegment(3, round(road_per_roundabout / 2), 2, 2, 2, symmetric_to=0, shape=Arc((road_dist, 0.0), 1.0, math.pi / 2, math.pi)),
+            RoadSegment(4, round(road_dist * road_per_roundabout / math.pi), 1, 1, 2, symmetric_to=5, shape=Arc((road_dist / 2, -straight_y_offset + 1.0), straight_radius, math.pi / 2 - straight_sweep, 2 * straight_sweep)),
+            RoadSegment(5, round(road_dist * road_per_roundabout / math.pi), 2, 2, 1, symmetric_to=4, shape=Arc((road_dist / 2, straight_y_offset - 1.0), straight_radius, -math.pi / 2 - straight_sweep, 2 * straight_sweep)),
         )
         cars = tuple(CarDef(i, i % len(roads), 2 + int(road_per_roundabout * i / len(roads) / 4)) for i in range(car_count))
         # Acceleration is usually within [-1..1] but there is a 20% chance for a 100% increase
@@ -139,6 +123,37 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
             )
         )
         return RoadNetwork(roads, cars, max_vel, 0, accel_actions)
+
+    @staticmethod
+    def create_crossing_roads_scenario(car_count: int = 5, road_length_circ: int = 36, max_vel: int = 4) -> "RoadNetwork":
+        angle = math.pi / 6.0
+        radius = round(road_length_circ / math.tau)
+        road_length_arc = round(road_length_circ - 2 * angle * radius)
+        road_length_middle = round(2 * math.sin(angle) * radius)
+        vis_straight_offset = math.sin(angle)
+        vis_arc_center_offset = math.cos(angle)
+        roads = (
+            RoadSegment(0, road_length_middle, 1, 2, 1, symmetric_to=0, shape=Straight((0.0, -vis_straight_offset), (0.0, vis_straight_offset))),
+            RoadSegment(1, road_length_arc, 0, 0, 0, symmetric_to=2, shape=Arc((-vis_arc_center_offset, 0.0), 1.0, angle, math.tau - 2 * angle)),
+            RoadSegment(2, road_length_arc, 0, 0, 0, symmetric_to=1, shape=Arc((vis_arc_center_offset, 0.0), 1.0, math.pi - angle, -(math.tau - 2 * angle))),
+        )
+        cars = tuple(CarDef(i, 1 + i % 2, int(road_length_arc * i / float(car_count))) for i in range(car_count))
+        # Acceleration is usually within [-1..1] but there is a 20% chance for a 100% increase
+        accel_actions = (
+            (
+                ChancedOutcomeAccel(0.2, -2),
+                ChancedOutcomeAccel(0.8, -1),
+            ),
+            (
+                ChancedOutcomeAccel(1.0, 0),
+            ),
+            (
+                ChancedOutcomeAccel(0.8, 1),
+                ChancedOutcomeAccel(0.2, 2),
+            )
+        )
+        return RoadNetwork(roads, cars, max_vel, 0, accel_actions)
+
 
     def get_init_state(self) -> RoadNetworkState:
         cars = tuple(CarState(c.id, c.init_road, c.init_pos, c.init_vel, False, False) for c in self.cars)

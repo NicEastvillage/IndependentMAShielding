@@ -7,8 +7,8 @@ from imashielding.visualize import visualize
 if __name__ == '__main__':
     net = RoadNetwork.create_double_roundabout_scenario(car_count=2)
     absnet = AbstractRoadNetworkSystem(net)
-    dg_shield = compute_shield(absnet, road_safety())
+    dg_shield = compute_shield(absnet, road_safety(net))
     shields = {
-        agent: dg_shield.with_normalizer(lambda state, a=agent: AbstractRoadNetworkSystem.normalize(state, a)) for agent in range(len(net.cars))
+        agent: dg_shield.with_normalizer(lambda state, a=agent: absnet.normalize(state, a)) for agent in range(len(net.cars))
     }
     visualize(net, steps=0, fps=12, shields=shields)
