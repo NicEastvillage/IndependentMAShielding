@@ -95,10 +95,10 @@ def draw_roads(surface: pygame.Surface, net: RoadNetwork, view: View):
             pygame.draw.arc(surface, ASPHALT_COLOR, rect, start, start + abs(arc.sweep), int(width))
 
 
-def draw_cars(surface: pygame.Surface, state: RoadNetworkState, view: View, font: pygame.font.Font):
+def draw_cars(surface: pygame.Surface, system: RoadNetwork, state: RoadNetworkState, view: View, font: pygame.font.Font):
     n = len(state.cars)
     for car in state.cars:
-        segment = state.system.roads[car.road]
+        segment = system.roads[car.road]
         pos, heading = segment.arc.frame(car.pos / segment.length)
 
         fx, fy = math.cos(heading), math.sin(heading)
@@ -199,7 +199,7 @@ def visualize(
                     else random.randrange(net.get_agent_action_count(state, car.id))
                     for car in net.cars
                 )
-            successors = state.get_successors(actions)
+            successors = net.get_successors(state, actions)
             state = random.choices(successors, weights=[s.chance for s in successors], k=1)[0].state
 
             step += 1
@@ -208,6 +208,6 @@ def visualize(
 
         screen.fill(BACKGROUND)
         draw_roads(screen, net, view)
-        draw_cars(screen, state, view, font)
+        draw_cars(screen, net, state, view, font)
         pygame.display.flip()
         clock.tick(fps)

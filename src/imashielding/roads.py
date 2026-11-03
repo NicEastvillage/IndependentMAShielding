@@ -17,11 +17,7 @@ class CarState:
 
 @dataclass(frozen=True, slots=True)
 class RoadNetworkState:
-    system: "RoadNetwork"
     cars: Tuple[CarState, ...]
-
-    def get_successors(self, actions: Tuple[int, ...]) -> Tuple[ChancedState["RoadNetworkState"], ...]:
-        return self.system.get_successors(self, actions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,7 +142,7 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
 
     def get_init_state(self) -> RoadNetworkState:
         cars = tuple(CarState(c.id, c.init_road, c.init_pos, c.init_vel, False, False) for c in self.cars)
-        return RoadNetworkState(self, cars)
+        return RoadNetworkState(cars)
 
     def get_successors(self, state: RoadNetworkState, actions: Tuple[int, ...]) -> Tuple[ChancedState[RoadNetworkState], ...]:
         assert len(state.cars) == len(actions)
@@ -163,7 +159,7 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
                         new_cars = cars[:i] + (CarState(i, road, pos, vel, just_merged, outcome.accel < 0),) + cars[i + 1:]
                         expanded[new_cars] = expanded.get(new_cars, 0.0) + chance * outcome.chance * move_chance
             partials = [(chance, cars) for cars, chance in expanded.items()]
-        return tuple(ChancedState[RoadNetworkState](chance, RoadNetworkState(self, tuple(cars))) for chance, cars in partials)
+        return tuple(ChancedState[RoadNetworkState](chance, RoadNetworkState(tuple(cars))) for chance, cars in partials)
 
     def _advance(self, road: int, pos: int, vel: int) -> Iterator[Tuple[float, int, int, bool]]:
         """Yields (chance, road, pos, just_merged) placements after moving `vel` cells start from (road, pos).

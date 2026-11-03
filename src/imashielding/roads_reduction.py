@@ -6,56 +6,51 @@ from imashielding.roads import RoadNetworkState, RoadNetwork, CarState
 from imashielding.systems import LabelledTransitionSystem, ChancedState, StateSafety
 
 
-class AbstractRoundaboutSystem(LabelledTransitionSystem[RoadNetworkState]):
-    def __init__(self, roundabout: RoadNetwork, agent: int):
+AbstractRoundaboutState = RoadNetworkState
+
+class AbstractRoundaboutSystem(LabelledTransitionSystem[AbstractRoundaboutState]):
+    def __init__(self, roundabout: RoadNetwork):
         self._system = roundabout
-        self._pov = agent
 
-    def get_init_state(self) -> RoadNetworkState:
+    def get_init_state(self) -> AbstractRoundaboutState:
         s = self._system.get_init_state()
-        return self.normalize(s, self._pov)
+        return self.normalize(s, 0)
 
-    def get_successor_states(self, state: RoadNetworkState, actions: Tuple[int, ...]) -> Tuple[ChancedState[RoadNetworkState], ...]:
-        succs = self._system.get_successors(state, actions)
-        return tuple(ChancedState[RoadNetworkState](succ.chance, self.normalize(succ.state, self._pov)) for succ in succs)
-
-    def get_abstract_successor_states(self, state: RoadNetworkState, action: int) -> Tuple[RoadNetworkState, ...]:
+    def get_abstract_successor_states(self, state: AbstractRoundaboutState, action: int) -> Tuple[AbstractRoundaboutState, ...]:
         assert len(state.cars) <= 2
-        # Assumption: Input state is normalized
 
         if len(state.cars) == 1:
-            successors = self.get_successor_states(state, (action,))
-            return tuple(self.normalize(successor.state, 0) for successor in successors)
+            chanced_successors = self._system.get_successors(state, (action,))
+            return tuple(self.normalize(cs.state, 0) for cs in chanced_successors)
 
         action_vecs = tuple((action, a) for a in range(self._system.get_agent_action_count(state, 1)))
 
         successors = []
-        for avec in action_vecs:
-            chanced_successors = self.get_successor_states(state, avec)
+        for av in action_vecs:
+            chanced_successors = self._system.get_successors(state, av)
             successors.extend([self.normalize(cs.state, 0) for cs in chanced_successors])
 
         return tuple(successors)
 
-    def get_action_count(self, state: RoadNetworkState) -> int:
-        # Assumption: Input state is normalized
+    def get_action_count(self, state: AbstractRoundaboutState) -> int:
+        # Assumption: All cars have the same actions available
         return self._system.get_agent_action_count(state, 0)
 
-    @staticmethod
-    def normalize(state: RoadNetworkState, agent: int) -> RoadNetworkState:
-        assert len(state.system.roads) == 1
-        if len(state.system.cars) == 1:
-            return RoadNetworkState(state.system, (CarState(agent, 0, 0, state.cars[agent].vel, False, False),))
+    def normalize(self, state: RoadNetworkState, agent: int) -> AbstractRoundaboutState:
+        assert len(self._system.roads) == 1
+        if len(self._system.cars) == 1:
+            return AbstractRoundaboutState((CarState(agent, 0, 0, state.cars[agent].vel, False, False),))
 
         ego_pos = state.cars[agent].pos
         ego_vel = state.cars[agent].vel
 
         car_count = len(state.cars)
         car_in_front = state.cars[(agent + 1) % car_count]
-        dist = (car_in_front.pos - ego_pos) % state.system.roads[0].length
+        dist = (car_in_front.pos - ego_pos) % self._system.roads[0].length
         for i, car in enumerate(state.cars):
             if i == agent:
                 continue
-            alt_dist = (car.pos - ego_pos) % state.system.roads[0].length
+            alt_dist = (car.pos - ego_pos) % self._system.roads[0].length
             if alt_dist <= dist:
                 car_in_front = car
                 dist = alt_dist
@@ -63,7 +58,7 @@ class AbstractRoundaboutSystem(LabelledTransitionSystem[RoadNetworkState]):
         abstract_ego_car = CarState(0, 0, 0, ego_vel, False, False)
         abstract_front_car = CarState(1, 0, dist, car_in_front.vel, False, False)
 
-        return RoadNetworkState(state.system, (abstract_ego_car, abstract_front_car))
+        return AbstractRoundaboutState((abstract_ego_car, abstract_front_car))
 
 
 def roundabout_safety(min_dist: int = 4):
@@ -75,49 +70,44 @@ def roundabout_safety(min_dist: int = 4):
     return func
 
 
-class AbstractRoadNetworkSystem(LabelledTransitionSystem[RoadNetworkState]):
-    def __init__(self, roundabout: RoadNetwork, agent: int):
+
+AbstractRoadNetworkState = RoadNetworkState
+
+class AbstractRoadNetworkSystem(LabelledTransitionSystem[AbstractRoadNetworkState]):
+    def __init__(self, roundabout: RoadNetwork):
         self._system = roundabout
-        self._pov = agent
 
-    def get_init_state(self) -> RoadNetworkState:
+    def get_init_state(self) -> AbstractRoadNetworkState:
+        # TODO: There could be more than one initial state based on POV
         s = self._system.get_init_state()
-        return self.normalize(s, self._pov)
+        return self.normalize(s, 0)
 
-    def get_successor_states(self, state: RoadNetworkState, actions: Tuple[int, ...]) -> Tuple[ChancedState[RoadNetworkState], ...]:
-        succs = self._system.get_successors(state, actions)
-        return tuple(ChancedState[RoadNetworkState](succ.chance, self.normalize(succ.state, self._pov)) for succ in succs)
-
-    def get_abstract_successor_states(self, state: RoadNetworkState, action: int) -> Tuple[RoadNetworkState, ...]:
-        # Assumption: Input state is normalized
-
+    def get_abstract_successor_states(self, state: AbstractRoadNetworkState, action: int) -> Tuple[AbstractRoadNetworkState, ...]:
         car_count = len(state.cars)
         if car_count == 1:
-            successors = self.get_successor_states(state, (action,))
-            return tuple(self.normalize(successor.state, 0) for successor in successors)
+            chanced_successors = self._system.get_successors(state, (action,))
+            return tuple(self.normalize(cs.state, 0) for cs in chanced_successors)
 
         other_ranges = (range(self._system.get_agent_action_count(state, i)) for i in range(1, car_count))
         action_vecs = ((action,) + combo for combo in product(*other_ranges))
 
         successors = []
         for av in action_vecs:
-            for succ in self._system.get_successors(state, av):
-                successors.append(self.normalize(succ.state, 0))
+            chanced_successors = self._system.get_successors(state, av)
+            successors.extend([self.normalize(cs.state, 0) for cs in chanced_successors])
         return tuple(successors)
 
-    def get_action_count(self, state: RoadNetworkState) -> int:
-        # Assumption: Input state is normalized
+    def get_action_count(self, state: AbstractRoadNetworkState) -> int:
+        # Assumption: All cars have the same actions available
         return self._system.get_agent_action_count(state, 0)
 
-    @staticmethod
-    def normalize(state: RoadNetworkState, agent: int) -> RoadNetworkState:
-        system = state.system
+    def normalize(self, state: RoadNetworkState, agent: int) -> AbstractRoadNetworkState:
         if len(state.cars) == 1:
             car = state.cars[agent]
-            return RoadNetworkState(system, (CarState(0, car.road, car.pos, car.vel, False, False),))
+            return AbstractRoadNetworkState((CarState(0, car.road, car.pos, car.vel, False, False),))
 
         ego = state.cars[agent]
-        roads = system.roads
+        roads = self._system.roads
 
         # Dijkstra over segments: dist_start[s] = distance (in lengths) from the ego
         # car's position to reach position 0 of segment s, traversing segment ends.
@@ -166,7 +156,7 @@ class AbstractRoadNetworkSystem(LabelledTransitionSystem[RoadNetworkState]):
             for i, (_, car) in enumerate(cars_by_dist):
                 new_cars += (CarState(i, car.road, car.pos, car.vel, car.just_merged, False),)
 
-        return RoadNetworkState(system, new_cars)
+        return AbstractRoadNetworkState(new_cars)
 
 
 def road_safety(min_dist: int = 3, merge_space: int = 8):
