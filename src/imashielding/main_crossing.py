@@ -5,7 +5,7 @@ from imashielding.visualize import visualize
 
 
 if __name__ == '__main__':
-    net = RoadNetwork.create_crossing_roads_scenario(car_count=2)
+    net = RoadNetwork.create_crossing_roads_scenario(car_count=3)
     absnet = AbstractRoadNetworkSystem(net)
     dg_shield = compute_shield(absnet, road_safety(net))
     shields = {
