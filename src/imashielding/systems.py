@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import TypeVar, Generic, Tuple, Callable
+from typing import Optional, TypeVar, Generic, Tuple, Callable
 
 STATE = TypeVar('STATE')
 ABS_STATE = TypeVar('ABS_STATE')
@@ -32,6 +32,16 @@ class LabelledTransitionSystem(Generic[ABS_STATE]):
 
     def get_action_count(self, state: ABS_STATE) -> int:
         raise NotImplementedError()
+
+    def get_cache_key(self) -> Optional[str]:
+        """A stable identifier of everything that influences the synthesized shield.
+
+        Used to name an on-disk shield cache entry.  Implementations should return
+        a string that changes whenever the transition system changes (topology,
+        initial state, actions, abstraction), or ``None`` to disable automatic
+        caching for this system.
+        """
+        return None
 
 
 Normalization = Callable[[STATE], ABS_STATE]

@@ -1,3 +1,4 @@
+import hashlib
 import heapq
 from itertools import product
 from typing import Tuple
@@ -6,11 +7,33 @@ from imashielding.roads import RoadNetworkState, RoadNetwork, CarState
 from imashielding.systems import LabelledTransitionSystem, ChancedState, StateSafety
 
 
+def _network_cache_key(network: RoadNetwork) -> str:
+    """Stable digest of every property of a road network that affects synthesis.
+
+    Includes the road topology, visual shapes, car definitions, velocity bounds and
+    acceleration distributions, i.e. everything that determines the transition
+    system and its initial state.  ``repr`` of the frozen dataclasses involved is
+    deterministic.
+    """
+    parts = (
+        type(network).__qualname__,
+        repr(network.roads),
+        repr(network.cars),
+        repr(network.max_vel),
+        repr(network.min_vel),
+        repr(network.accel_actions),
+    )
+    return hashlib.sha256('|'.join(parts).encode('utf-8')).hexdigest()
+
+
 AbstractRoundaboutState = RoadNetworkState
 
 class AbstractRoundaboutSystem(LabelledTransitionSystem[AbstractRoundaboutState]):
     def __init__(self, roundabout: RoadNetwork):
         self._system = roundabout
+
+    def get_cache_key(self) -> str:
+        return f'{type(self).__qualname__}:{_network_cache_key(self._system)}'
 
     def get_init_state(self) -> AbstractRoundaboutState:
         s = self._system.get_init_state()
@@ -67,6 +90,7 @@ def roundabout_safety(min_dist: int = 4):
             return StateSafety.SAFE
         dist = state.cars[1].pos - state.cars[0].pos
         return StateSafety.SAFE if dist >= min_dist else StateSafety.UNSAFE
+    func.shield_cache_key = f'roundabout_safety(min_dist={min_dist})'
     return func
 
 
@@ -76,6 +100,9 @@ AbstractRoadNetworkState = RoadNetworkState
 class AbstractRoadNetworkSystem(LabelledTransitionSystem[AbstractRoadNetworkState]):
     def __init__(self, roundabout: RoadNetwork):
         self._system = roundabout
+
+    def get_cache_key(self) -> str:
+        return f'{type(self).__qualname__}:{_network_cache_key(self._system)}'
 
     def get_init_state(self) -> AbstractRoadNetworkState:
         # TODO: There could be more than one initial state based on POV
@@ -231,4 +258,5 @@ def road_safety(system: RoadNetwork, min_dist: int = 3, merge_space: int = 8):
 
         return StateSafety.SAFE_RELEASE if somebody_else_messed_up else StateSafety.SAFE
 
+    func.shield_cache_key = f'road_safety(min_dist={min_dist},merge_space={merge_space})'
     return func
