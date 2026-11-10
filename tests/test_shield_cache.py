@@ -54,7 +54,8 @@ class ShieldCacheTest(unittest.TestCase):
         self.assertIn("Loaded shield from cache", second_output)
         self.assertNotIn("Computing shield...", second_output)
         self.assertEqual(first.get_safe_actions(self.init), second.get_safe_actions(self.init))
-        self.assertEqual(first.graph.number_of_nodes(), second.graph.number_of_nodes())
+        self.assertEqual(first.state_count, second.state_count)
+        self.assertEqual(first.metadata["graph_nodes"], second.metadata["graph_nodes"])
         self.assertEqual(first.metadata["cache_key"], second.metadata["cache_key"])
 
     def test_force_recompute_synthesizes_again(self):
@@ -87,9 +88,14 @@ class ShieldCacheTest(unittest.TestCase):
         path = self._cache_files()[0]
         loaded = DGShield.load(path)
         self.assertEqual(loaded.get_safe_actions(self.init), first.get_safe_actions(self.init))
-        self.assertEqual(loaded.graph.number_of_nodes(), first.graph.number_of_nodes())
-        self.assertEqual(loaded.graph.number_of_edges(), first.graph.number_of_edges())
+        self.assertEqual(loaded.state_count, first.state_count)
+        self.assertEqual(loaded.metadata["graph_nodes"], first.metadata["graph_nodes"])
+        self.assertEqual(loaded.metadata["graph_edges"], first.metadata["graph_edges"])
         self.assertEqual(loaded.metadata["safe_states"], first.metadata["safe_states"])
+        self.assertEqual(
+            sorted(map(repr, loaded.iter_states())),
+            sorted(map(repr, first.iter_states())),
+        )
 
 
 if __name__ == "__main__":

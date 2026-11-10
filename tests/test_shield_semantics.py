@@ -194,8 +194,8 @@ class ReleaseTest(unittest.TestCase):
 
         self.assertEqual(shield.get_safe_actions("s0"), (0,))
         self.assertTrue(shield.contains("release"))
-        # The ADG deliberately creates no action nodes for a release state.
-        self.assertEqual(shield.graph.out_degree("release"), 0)
+        # A release state is terminal, so it has no safe actions to explore.
+        self.assertTrue(shield.is_released("release"))
         # A release state must never be queried while every agent is shielded,
         # so asking for its actions is a loud failure rather than an empty mask.
         with self.assertRaises(AssertionError):

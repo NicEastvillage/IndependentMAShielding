@@ -1,16 +1,22 @@
 import time
-from enum import Enum
 from pathlib import Path
 from typing import Callable, Tuple, Generic, Optional, Any, Dict
-
-from networkx import DiGraph
 
 from imashielding.shield_cache import (
     PathLike,
     ShieldCacheError,
-    load_graph,
-    save_graph,
+    load_shield,
+    save_shield,
     shield_cache_path,
+)
+from imashielding.shield_graph import (
+    NodeColor,
+    SAFE,
+    SAFE_DIRTY,
+    UNEXPLORED,
+    UNSAFE,
+    ShieldGraph,
+    ShieldGraphBuilder,
 )
 from imashielding.systems import LabelledTransitionSystem, ABS_STATE, STATE, Normalization, StateSafety
 
@@ -32,39 +38,48 @@ class Shield(Generic[ABS_STATE]):
 
 
 class DGShield(Shield[ABS_STATE]):
-    def __init__(self, graph: DiGraph, metadata: Optional[Dict[str, Any]] = None):
+    def __init__(self, graph: ShieldGraph, metadata: Optional[Dict[str, Any]] = None):
         self._graph = graph
         self.metadata = metadata or {}
 
     def get_safe_actions(self, state: ABS_STATE) -> Tuple[int, ...]:
+        index = self._graph.index_of(state)
+        if index is None:
+            return ()
         # A SAFE_RELEASE state means some *other* agent already violated its
         # objective.  Under the assumption that every agent is shielded this
         # cannot happen, so being asked about such a state indicates a bug
         # (e.g. an unshielded agent, or an unsound abstraction).  Fail loudly
         # instead of silently masking the agent.
-        if state in self._graph.nodes:
-            data = self._graph.nodes[state]
-            released = data.get('released', False) or (
-                data.get('color') == NodeColor.SAFE
-                and self._graph.out_degree(state) == 0
+        if self._graph.released[index]:
+            raise AssertionError(
+                f'shield queried about release state {state!r}; a release '
+                f'state is unreachable while every agent is shielded'
             )
-            if released:
-                raise AssertionError(
-                    f'shield queried about release state {state!r}; a release '
-                    f'state is unreachable while every agent is shielded'
-                )
-        return tuple(self._graph.nodes[act_node]['action']
-                     for act_node in self._graph.successors(state)
-                     if self._graph.nodes[act_node]['color'] == NodeColor.SAFE)
+        return self._graph.safe_actions[index]
 
     def contains(self, state: ABS_STATE) -> bool:
-        return state in self._graph.nodes
+        return self._graph.contains(state)
+
+    def iter_states(self):
+        """Iterate over every abstract state represented by this shield."""
+        return self._graph.iter_states()
+
+    def is_released(self, state: ABS_STATE) -> bool:
+        return self._graph.is_released(state)
+
+    def color_of(self, state: ABS_STATE) -> Optional[NodeColor]:
+        return self._graph.color_of(state)
+
+    @property
+    def state_count(self) -> int:
+        return self._graph.state_count
 
     # ------------------------------------------------------------------ persistence
 
     def save(self, path: PathLike, metadata: Optional[Dict[str, Any]] = None) -> None:
         """Write this shield to ``path`` in the versioned cache format."""
-        save_graph(self._graph, path, metadata if metadata is not None else self.metadata)
+        save_shield(self._graph, path, metadata if metadata is not None else self.metadata)
 
     @classmethod
     def load(cls, path: PathLike) -> 'DGShield[ABS_STATE]':
@@ -73,11 +88,12 @@ class DGShield(Shield[ABS_STATE]):
         Raises :class:`imashielding.shield_cache.ShieldCacheError` if the file is
         missing, corrupt, or was written by an incompatible version.
         """
-        graph, metadata = load_graph(path)
+        graph, metadata = load_shield(path)
         return cls(graph, metadata)
 
     @property
-    def graph(self) -> DiGraph:
+    def graph(self) -> ShieldGraph:
+        """The compact state/action store backing this shield."""
         return self._graph
 
 
@@ -91,13 +107,6 @@ class NormalizingShield(Shield[STATE]):
 
     def contains(self, state: STATE) -> bool:
         return self._shield.contains(self._normalize(state))
-
-
-class NodeColor(Enum):
-    UNEXPLORED = 0
-    SAFE = 1
-    SAFE_DIRTY = 2
-    UNSAFE = 3
 
 
 def _resolve_cache_key(
@@ -122,6 +131,30 @@ def _resolve_cache_key(
     if system_key is None or safe_key is None:
         return None
     return f'{system_key}|{safe_key}'
+
+
+def _propagate_unsafe(
+    builder: ShieldGraphBuilder,
+    state_id: int,
+    update_stack: list,
+) -> None:
+    """Mark all incoming actions of ``state_id`` unsafe and dirty their states.
+
+    Every action that can reach the newly unsafe state is marked unsafe, and
+    every predecessor state that is currently SAFE is queued for re-evaluation.
+    """
+    entries = builder.predecessors[state_id]
+    action_status = builder.action_status
+    colors = builder.colors
+    for i in range(0, len(entries), 2):
+        predecessor_id = entries[i]
+        action = entries[i + 1]
+        statuses = action_status[predecessor_id]
+        if statuses is not None:
+            statuses[action] = UNSAFE
+        if colors[predecessor_id] == SAFE:
+            colors[predecessor_id] = SAFE_DIRTY
+            update_stack.append(predecessor_id)
 
 
 def compute_shield(
@@ -162,12 +195,14 @@ def compute_shield(
 
     # The shield is computed by constructing an abstract dependency graph.
 
-    # This implementation uses a bi-partite graph: Both states and actions appear are nodes.
-    # State nodes are marked with a color: UNEXPLORED, SAFE, SAFE_DIRTY, or UNSAFE.
-    # Action nodes are marked with a color: SAFE or UNSAFE.
+    # Each state has one status per action; an action stays SAFE while all of
+    # its successors are safe, and becomes UNSAFE as soon as one is unsafe.
+    # States are coloured UNEXPLORED, SAFE, SAFE_DIRTY, or UNSAFE.  Reverse
+    # dependencies are stored as (predecessor state, action) pairs so an unsafe
+    # state can poison its incoming actions directly.
     # Loop invariants:
-    # - If a node is colored UNEXPLORED then it is in the explore_stack.
-    # - if a node is colored SAFE_DIRTY, then it is in the update_stack.
+    # - If a state is coloured UNEXPLORED then it is in the explore_stack.
+    # - If a state is coloured SAFE_DIRTY, then it is in the update_stack.
 
     PRINT_EVERY_X = 500
 
@@ -176,103 +211,100 @@ def compute_shield(
 
     init_state = system.get_init_state()
 
-    g = DiGraph()
-    g.add_node(init_state, color=NodeColor.UNEXPLORED)
+    builder = ShieldGraphBuilder()
+    init_id = builder.add_state(init_state)
 
-    explore_stack = [init_state]
+    explore_stack = [init_id]
     update_stack = []
 
     unsafe_count = 0
     release_count = 0
 
-    while len(explore_stack) > 0 or len(update_stack) > 0:
-        if len(update_stack) > 0:
-            n = update_stack.pop()
+    while explore_stack or update_stack:
+        if update_stack:
+            state_id = update_stack.pop()
         else:
-            n = explore_stack.pop()
-        color = g.nodes[n]['color']
-        if color == NodeColor.UNSAFE:
-            # This node is done now
+            state_id = explore_stack.pop()
+
+        color = builder.colors[state_id]
+        if color == UNSAFE or color == SAFE:
+            # This node is done now / already up-to-date.
             continue
-        elif color == NodeColor.SAFE:
-            # This node is already up-to-date
-            continue
-        elif color == NodeColor.SAFE_DIRTY:
+        elif color == SAFE_DIRTY:
             # Check if any action is guaranteed safe. Transition to SAFE or UNSAFE accordingly.
-            any_safe = False
-            for act in range(system.get_action_count(n)):
-                action_node = (n, act)
-                if g.nodes[action_node]['color'] == NodeColor.SAFE or g.nodes[action_node]['color'] == NodeColor.SAFE_DIRTY:
-                    any_safe = True
+            statuses = builder.action_status[state_id]
+            any_safe = statuses is not None and any(
+                status == SAFE or status == SAFE_DIRTY for status in statuses
+            )
             if any_safe:
-                g.nodes[n]['color'] = NodeColor.SAFE
+                builder.colors[state_id] = SAFE
             else:
-                g.nodes[n]['color'] = NodeColor.UNSAFE
+                builder.colors[state_id] = UNSAFE
                 unsafe_count += 1
                 if unsafe_count % PRINT_EVERY_X == 0:
                     print('.', end='')
-                # Queue SAFE predecessors as SAFE_DIRTY
-                for pred_act in g.predecessors(n):
-                    g.nodes[pred_act]['color'] = NodeColor.UNSAFE
-                    for pred in g.predecessors(pred_act):
-                        if g.nodes[pred]['color'] == NodeColor.SAFE:
-                            g.nodes[pred]['color'] = NodeColor.SAFE_DIRTY
-                            update_stack.append(pred)
+                _propagate_unsafe(builder, state_id, update_stack)
 
-        elif color == NodeColor.UNEXPLORED:
-            # Generate successors of this state. Any new states are added to the graph and queued for exploration
+        elif color == UNEXPLORED:
+            # Generate successors of this state. Any new states are added to the
+            # graph and queued for exploration.
+            state = builder.states[state_id]
+            action_count = system.get_action_count(state)
+            builder.begin_actions(state_id, action_count)
+            statuses = builder.action_status[state_id]
+
             any_safe = False
-            for act in range(system.get_action_count(n)):
-                action_node = (n, act)
-                g.add_node(action_node, color=NodeColor.SAFE, action=act)
-                g.add_edge(n, action_node)
-                for succ in system.get_abstract_successor_states(n, act):
-                    if succ in g.nodes:
-                        # Existing
-                        g.add_edge(action_node, succ)
-                        if g.nodes[succ]['color'] == NodeColor.UNSAFE:
-                            g.nodes[action_node]['color'] = NodeColor.UNSAFE
-                            break  # We only need one bad action successor for unsafety, skip the rest
-                    else:
-                        # New
-                        g.add_node(succ, color=NodeColor.UNEXPLORED)
-                        g.add_edge(action_node, succ)
-                        verdict = safe_func(succ)
+            for action in range(action_count):
+                action_status = SAFE
+                # Deduplicate successor ids per action so reverse-dependency
+                # propagation stays linear in the number of distinct successors.
+                seen_successors = set()
+
+                for successor in system.get_abstract_successor_states(state, action):
+                    successor_id = builder.state_ids.get(successor)
+
+                    if successor_id is None:
+                        # New state.
+                        successor_id = builder.add_state(successor)
+                        seen_successors.add(successor_id)
+                        builder.add_edge(successor_id, state_id, action)
+                        verdict = safe_func(successor)
 
                         if verdict == StateSafety.UNSAFE:
-                            g.nodes[succ]['color'] = NodeColor.UNSAFE
-                            g.nodes[action_node]['color'] = NodeColor.UNSAFE
-                            break  # We only need one bad action successor for unsafety, skip the rest
-
+                            builder.colors[successor_id] = UNSAFE
+                            action_status = UNSAFE
+                            break  # One bad successor is enough, skip the rest.
                         elif verdict == StateSafety.SAFE:
-                            explore_stack.append(succ)
-
+                            explore_stack.append(successor_id)
                         elif verdict == StateSafety.SAFE_RELEASE:
-                            # No need to explore
-                            g.nodes[succ]['color'] = NodeColor.SAFE
-                            g.nodes[succ]['released'] = True
+                            # No need to explore.
+                            builder.colors[successor_id] = SAFE
+                            builder.released[successor_id] = 1
                             release_count += 1
-
                         else:
                             assert False
+                        continue
 
-                if g.nodes[action_node]['color'] == NodeColor.SAFE:
+                    # Existing state.
+                    if successor_id not in seen_successors:
+                        seen_successors.add(successor_id)
+                        builder.add_edge(successor_id, state_id, action)
+                    if builder.colors[successor_id] == UNSAFE:
+                        action_status = UNSAFE
+                        break
+
+                statuses[action] = action_status
+                if action_status == SAFE:
                     any_safe = True
 
             if not any_safe:
-                g.nodes[n]['color'] = NodeColor.UNSAFE
+                builder.colors[state_id] = UNSAFE
                 unsafe_count += 1
                 if unsafe_count % PRINT_EVERY_X == 0:
                     print('.', end='')
-                # Conclusion reached already, queue predecessors for update
-                for pred_act in g.predecessors(n):
-                    g.nodes[pred_act]['color'] = NodeColor.UNSAFE
-                    for pred in g.predecessors(pred_act):
-                        if g.nodes[pred]['color'] == NodeColor.SAFE:
-                            g.nodes[pred]['color'] = NodeColor.SAFE_DIRTY
-                            update_stack.append(pred)
+                _propagate_unsafe(builder, state_id, update_stack)
             else:
-                g.nodes[n]['color'] = NodeColor.SAFE
+                builder.colors[state_id] = SAFE
         else:
             assert False
 
@@ -280,16 +312,19 @@ def compute_shield(
     if unsafe_count >= PRINT_EVERY_X:
         print('')
 
-    safe_count, unsafe_count = 0, 0
-    for n in g.nodes:
-        if 'action' in g.nodes[n]:
-            continue   # An action node
-        if g.nodes[n]['color'] == NodeColor.SAFE:
+    graph, graph_nodes, graph_edges = builder.finish()
+    # Release the transient action/dependency arrays before saving the shield.
+    del builder
+
+    safe_count = 0
+    unsafe_count = 0
+    for color in graph.colors:
+        if color == SAFE:
             safe_count += 1
-        elif g.nodes[n]['color'] == NodeColor.UNSAFE:
+        elif color == UNSAFE:
             unsafe_count += 1
         else:
-            assert False, f'Node had color {g.nodes[n]['color']} at the end of shielding'
+            assert False, f'State had color {NodeColor(color)} at the end of shielding'
     print(f'- Safe states: {safe_count}\n- Unsafe states: {unsafe_count}\n- Released states: {release_count}\n- Time (s): {end_time - start_time:0.3f}')
 
     metadata = {
@@ -299,11 +334,11 @@ def compute_shield(
         'safe_states': safe_count,
         'unsafe_states': unsafe_count,
         'release_states': release_count,
-        'graph_nodes': g.number_of_nodes(),
-        'graph_edges': g.number_of_edges(),
+        'graph_nodes': graph_nodes,
+        'graph_edges': graph_edges,
         'synthesis_seconds': end_time - start_time,
     }
-    shield = DGShield(g, metadata)
+    shield = DGShield(graph, metadata)
 
     if cache_path is not None:
         try:

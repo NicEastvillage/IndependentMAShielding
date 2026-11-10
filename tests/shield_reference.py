@@ -14,8 +14,8 @@ This mirrors the definition in the paper, not the implementation, so it is slow
 and stores everything explicitly.  It is only used with small systems.
 
 The assertions only use the public shield API (``contains`` and
-``get_safe_actions``), so the tests remain valid if the graph representation is
-replaced during optimisation.
+``get_safe_actions``), so the tests remain valid if the internal representation
+is replaced during optimisation.
 """
 
 from collections import deque

@@ -8,12 +8,14 @@ instead of synthesizing it again.
 Format
 ------
 A shield is written as a versioned, gzip-compressed pickle (``*.shield.pkl.gz``).
-Pickle is the appropriate representation here because graph nodes are arbitrary
-hashable abstract states -- in this project frozen dataclasses such as
+Pickle is the appropriate representation for the abstract states themselves --
+in this project frozen dataclasses such as
 :class:`imashielding.roads.RoadNetworkState` -- which a text/JSON format cannot
-represent generically.  The outer envelope records the format name and version,
-so an incompatible or corrupt file is rejected and the shield is recomputed rather
-than silently misread.
+represent generically.  The expensive transient dependency graph is *not*
+stored: only the set of states, their final colours, the release flags and the
+precomputed safe actions are needed to answer shield queries.  The outer
+envelope records the format name and version, so an incompatible or corrupt
+file is rejected and the shield is recomputed rather than silently misread.
 
 Only load cache files that you trust: unpickling can execute arbitrary code.
 """
@@ -30,13 +32,18 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Tuple, Union
 
-from networkx import DiGraph
+from imashielding.shield_graph import ShieldGraph
 
 FORMAT_NAME = "imashielding.shield"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 #: Environment variable that overrides the default cache directory.
 CACHE_DIR_ENV = "IMASHIELDING_SHIELD_CACHE"
+
+#: Compression level used when writing caches. The payload is dominated by
+#: state objects and small integer arrays, so a medium level is a better
+#: time/space trade-off than gzip's slow default of 9.
+COMPRESSION_LEVEL = 3
 
 PathLike = Union[str, os.PathLike]
 
@@ -83,8 +90,8 @@ def shield_cache_path(cache_key: str, cache_dir: Optional[PathLike] = None) -> P
     return resolve_cache_dir(cache_dir) / f"{_readable_slug(cache_key)}-{digest}.shield.pkl.gz"
 
 
-def save_graph(
-    graph: DiGraph,
+def save_shield(
+    graph: ShieldGraph,
     path: PathLike,
     metadata: Optional[Mapping[str, Any]] = None,
 ) -> None:
@@ -98,7 +105,10 @@ def save_graph(
         "format_version": FORMAT_VERSION,
         "created_at": time.time(),
         "metadata": dict(metadata or {}),
-        "graph": graph,
+        "states": list(graph.states),
+        "colors": bytes(graph.colors),
+        "released": bytes(graph.released),
+        "safe_actions": graph.safe_actions,
     }
 
     path = Path(path)
@@ -108,7 +118,9 @@ def save_graph(
         prefix=f"{path.name}.", suffix=".tmp", dir=str(path.parent)
     )
     try:
-        with os.fdopen(fd, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as stream:
+        with os.fdopen(fd, "wb") as raw, gzip.GzipFile(
+            fileobj=raw, mode="wb", compresslevel=COMPRESSION_LEVEL, mtime=0
+        ) as stream:
             pickle.dump(payload, stream, protocol=pickle.HIGHEST_PROTOCOL)
         os.replace(tmp_name, path)
     except BaseException:
@@ -119,15 +131,16 @@ def save_graph(
         raise
 
 
-def load_graph(path: PathLike) -> Tuple[DiGraph, Dict[str, Any]]:
-    """Read a shield graph and its metadata, raising :class:`ShieldCacheError` on failure."""
+def load_shield(path: PathLike) -> Tuple[ShieldGraph, Dict[str, Any]]:
+    """Read a shield and its metadata, raising :class:`ShieldCacheError` on failure."""
     path = Path(path)
     try:
         with gzip.open(path, "rb") as stream:
             payload = pickle.load(stream)
     except Exception as error:
-        # A truncated file, an old pickle, a moved class, a gzip error, ... all
-        # mean the same thing to the caller: this cache entry is unusable.
+        # A truncated file, an incompatible pickle, a moved class, a gzip
+        # error, ... all mean the same thing to the caller: this cache entry is
+        # unusable.
         raise ShieldCacheError(f"Could not read shield cache {path}: {error}") from error
 
     if not isinstance(payload, dict) or payload.get("format") != FORMAT_NAME:
@@ -139,12 +152,17 @@ def load_graph(path: PathLike) -> Tuple[DiGraph, Dict[str, Any]]:
             f"{path} uses shield format version {version!r}; expected {FORMAT_VERSION}"
         )
 
-    graph = payload.get("graph")
-    if not isinstance(graph, DiGraph):
-        raise ShieldCacheError(f"{path} does not contain a networkx DiGraph")
-
     metadata = payload.get("metadata") or {}
     if not isinstance(metadata, dict):
         raise ShieldCacheError(f"{path} contains invalid metadata")
+
+    try:
+        states = payload["states"]
+        colors = payload["colors"]
+        released = payload["released"]
+        safe_actions = payload["safe_actions"]
+        graph = ShieldGraph(states, colors, released, safe_actions)
+    except (KeyError, TypeError, ValueError) as error:
+        raise ShieldCacheError(f"{path} contains an invalid compact shield: {error}") from error
 
     return graph, metadata

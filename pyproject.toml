@@ -8,7 +8,6 @@ description = ""
 dynamic = ["version"]
 requires-python = ">= 3.10"
 dependencies = [
-    "networkx",
     "pygame==2.6.1"
 ]
 readme = "README.md"
