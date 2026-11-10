@@ -64,7 +64,7 @@ def compute(system, safety):
 class FixpointTest(unittest.TestCase):
     def test_all_actions_are_returned_when_all_successors_are_safe(self):
         system = ToySystem(
-            "s0",
+            ["s0"],
             {
                 ("s0", 0): ("s1",),
                 ("s0", 1): ("s1",),
@@ -81,7 +81,7 @@ class FixpointTest(unittest.TestCase):
 
     def test_action_leading_to_an_unsafe_state_is_removed(self):
         system = ToySystem(
-            "s0",
+            ["s0"],
             {
                 ("s0", 0): ("good",),
                 ("s0", 1): ("bad",),
@@ -99,7 +99,7 @@ class FixpointTest(unittest.TestCase):
 
     def test_a_state_with_no_safe_action_is_unsafe_and_poisons_predecessors(self):
         system = ToySystem(
-            "s0",
+            ["s0"],
             {
                 ("s0", 0): ("s1",),
                 ("s0", 1): ("s1",),
@@ -122,7 +122,7 @@ class FixpointTest(unittest.TestCase):
         # state.  Neither state is removed because action 0 can stay in the
         # cycle forever: this must be the *greatest* fixpoint, not the least.
         system = ToySystem(
-            "s0",
+            ["s0"],
             {
                 ("s0", 0): ("s1",),
                 ("s0", 1): ("bad",),
@@ -142,7 +142,7 @@ class FixpointTest(unittest.TestCase):
         for successors in (("bad", "good"), ("good", "bad")):
             with self.subTest(successors=successors):
                 system = ToySystem(
-                    "safe-action",
+                    ["safe-action"],
                     {
                         ("safe-action", 0): successors,
                         ("safe-action", 1): ("good",),
@@ -163,7 +163,7 @@ class FixpointTest(unittest.TestCase):
 
     def test_nondeterministic_successor_sets_are_all_required(self):
         system = ToySystem(
-            "s0",
+            ["s0"],
             {
                 ("s0", 0): ("s1", "s2"),
                 ("s0", 1): ("s1",),
@@ -182,7 +182,7 @@ class FixpointTest(unittest.TestCase):
 class ReleaseTest(unittest.TestCase):
     def test_release_state_is_terminal_and_not_expanded(self):
         system = ToySystem(
-            "s0",
+            ["s0"],
             {
                 ("s0", 0): ("release",),
                 ("release", 0): ("never-explored",),
@@ -210,7 +210,7 @@ class ReleaseTest(unittest.TestCase):
         # Action 0 releases and action 1 fails; the union must still leave the
         # state safe *and* remove action 1.
         system = ToySystem(
-            "s0",
+            ["s0"],
             {
                 ("s0", 0): ("release",),
                 ("s0", 1): ("bad",),
@@ -230,7 +230,7 @@ class ReleaseTest(unittest.TestCase):
 
     def test_release_at_a_successor_keeps_the_state_safe_even_without_a_cycle(self):
         system = ToySystem(
-            "s0",
+            ["s0"],
             {
                 ("s0", 0): ("release",),
                 ("s0", 1): ("release",),
@@ -247,7 +247,7 @@ class ReferenceAgreementTest(unittest.TestCase):
 
     def test_hand_written_cases_agree_with_reference(self):
         system = ToySystem(
-            "s0",
+            ["s0"],
             {
                 ("s0", 0): ("s1", "release"),
                 ("s0", 1): ("bad",),
@@ -271,7 +271,7 @@ class ReferenceAgreementTest(unittest.TestCase):
 class ReleasePersistenceTest(unittest.TestCase):
     def test_release_state_still_raises_after_a_cache_round_trip(self):
         system = ToySystem(
-            "s0",
+            ["s0"],
             {
                 ("s0", 0): ("release",),
                 ("release", 0): ("never-explored",),

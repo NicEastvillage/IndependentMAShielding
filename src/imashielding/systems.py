@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, TypeVar, Generic, Tuple, Callable
+from typing import Optional, TypeVar, Generic, Tuple, Callable, List
 
 STATE = TypeVar('STATE')
 ABS_STATE = TypeVar('ABS_STATE')
@@ -24,7 +24,7 @@ class ConcurrentGame(Generic[STATE]):
 
 
 class LabelledTransitionSystem(Generic[ABS_STATE]):
-    def get_init_state(self) -> ABS_STATE:
+    def get_init_state(self) -> List[ABS_STATE]:
         raise NotImplementedError()
 
     def get_abstract_successor_states(self, state: ABS_STATE, action: int) -> Tuple[ABS_STATE, ...]:

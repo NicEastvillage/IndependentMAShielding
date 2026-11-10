@@ -1,7 +1,7 @@
 import hashlib
 import heapq
 from itertools import product
-from typing import Tuple
+from typing import Tuple, List
 
 from imashielding.roads import RoadNetworkState, RoadNetwork, CarState
 from imashielding.systems import LabelledTransitionSystem, ChancedState, StateSafety
@@ -35,9 +35,9 @@ class AbstractRoundaboutSystem(LabelledTransitionSystem[AbstractRoundaboutState]
     def get_cache_key(self) -> str:
         return f'{type(self).__qualname__}:{_network_cache_key(self._system)}'
 
-    def get_init_state(self) -> AbstractRoundaboutState:
+    def get_init_state(self) -> List[AbstractRoundaboutState]:
         s = self._system.get_init_state()
-        return self.normalize(s, 0)
+        return [self.normalize(s, 0)]
 
     def get_abstract_successor_states(self, state: AbstractRoundaboutState, action: int) -> Tuple[AbstractRoundaboutState, ...]:
         assert len(state.cars) <= 2
@@ -104,10 +104,9 @@ class AbstractRoadNetworkSystem(LabelledTransitionSystem[AbstractRoadNetworkStat
     def get_cache_key(self) -> str:
         return f'{type(self).__qualname__}:{_network_cache_key(self._system)}'
 
-    def get_init_state(self) -> AbstractRoadNetworkState:
-        # TODO: There could be more than one initial state based on POV
+    def get_init_state(self) -> List[AbstractRoadNetworkState]:
         s = self._system.get_init_state()
-        return self.normalize(s, 0)
+        return [self.normalize(s, c.id) for c in self._system.cars]
 
     def get_abstract_successor_states(self, state: AbstractRoadNetworkState, action: int) -> Tuple[AbstractRoadNetworkState, ...]:
         car_count = len(state.cars)

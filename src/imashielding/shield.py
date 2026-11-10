@@ -1,3 +1,4 @@
+import datetime
 import time
 from pathlib import Path
 from typing import Callable, Tuple, Generic, Optional, Any, Dict
@@ -183,11 +184,12 @@ def compute_shield(
         if cache_path.is_file():
             try:
                 shield = DGShield.load(cache_path)
-                init_state = system.get_init_state()
-                if not shield.contains(init_state):
-                    raise ShieldCacheError(
-                        f'the cached shield does not cover the initial state {init_state!r}'
-                    )
+                init_states = system.get_init_state()
+                for init_state in init_states:
+                    if not shield.contains(init_state):
+                        raise ShieldCacheError(
+                            f'the cached shield does not cover the initial state {init_state!r}'
+                        )
                 print(f'Loaded shield from cache: {cache_path}')
                 return shield
             except ShieldCacheError as error:
@@ -204,23 +206,38 @@ def compute_shield(
     # - If a state is coloured UNEXPLORED then it is in the explore_stack.
     # - If a state is coloured SAFE_DIRTY, then it is in the update_stack.
 
-    PRINT_EVERY_X = 500
-
     print('Computing shield...')
     start_time = time.time()
 
-    init_state = system.get_init_state()
+    init_states = system.get_init_state()
 
     builder = ShieldGraphBuilder()
-    init_id = builder.add_state(init_state)
 
-    explore_stack = [init_id]
+    explore_stack = []
+    for init_state in init_states:
+        init_id = builder.add_state(init_state)
+        explore_stack.append(init_id)
+
     update_stack = []
 
     unsafe_count = 0
     release_count = 0
 
+    REPORT_INTERVAL_SEC = 60
+    last_report = time.time()
+    report_new_state_count = 0
+    report_unsafe_state_count = 0
+    report_release_state_count = 0
+
     while explore_stack or update_stack:
+        if last_report + REPORT_INTERVAL_SEC < time.time():
+            timestamp = datetime.datetime.now()
+            print(f'{timestamp.strftime('%H:%M')} new={report_new_state_count:>7}, unsafe={report_unsafe_state_count:>7}, release={report_release_state_count:>7}')
+            last_report = time.time()
+            report_new_state_count = 0
+            report_unsafe_state_count = 0
+            report_release_state_count = 0
+
         if update_stack:
             state_id = update_stack.pop()
         else:
@@ -241,8 +258,6 @@ def compute_shield(
             else:
                 builder.colors[state_id] = UNSAFE
                 unsafe_count += 1
-                if unsafe_count % PRINT_EVERY_X == 0:
-                    print('.', end='')
                 _propagate_unsafe(builder, state_id, update_stack)
 
         elif color == UNEXPLORED:
@@ -300,8 +315,6 @@ def compute_shield(
             if not any_safe:
                 builder.colors[state_id] = UNSAFE
                 unsafe_count += 1
-                if unsafe_count % PRINT_EVERY_X == 0:
-                    print('.', end='')
                 _propagate_unsafe(builder, state_id, update_stack)
             else:
                 builder.colors[state_id] = SAFE
@@ -309,8 +322,6 @@ def compute_shield(
             assert False
 
     end_time = time.time()
-    if unsafe_count >= PRINT_EVERY_X:
-        print('')
 
     graph, graph_nodes, graph_edges = builder.finish()
     # Release the transient action/dependency arrays before saving the shield.
@@ -325,7 +336,10 @@ def compute_shield(
             unsafe_count += 1
         else:
             assert False, f'State had color {NodeColor(color)} at the end of shielding'
-    print(f'- Safe states: {safe_count}\n- Unsafe states: {unsafe_count}\n- Released states: {release_count}\n- Time (s): {end_time - start_time:0.3f}')
+    print(f'- Safe states: {safe_count}\n'
+          f'- Unsafe states: {unsafe_count}\n'
+          f'- Released states: {release_count}\n'
+          f'- Time (s): {end_time - start_time:0.3f}')
 
     metadata = {
         'cache_key': resolved_key,
