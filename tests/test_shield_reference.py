@@ -30,7 +30,7 @@ class RandomSystem(LabelledTransitionSystem[str]):
         self._transitions = transitions
         self._action_count = action_count
 
-    def get_init_state(self):
+    def get_init_states(self):
         return self._init
 
     def get_abstract_successor_states(self, state, action):
@@ -66,7 +66,7 @@ def _random_system(rng, state_count=6, action_count=3):
     def safety(state):
         return verdicts[state]
 
-    return RandomSystem("s0", transitions, action_count), safety
+    return RandomSystem(["s0"], transitions, action_count), safety
 
 
 class RandomReferenceAgreementTest(unittest.TestCase):

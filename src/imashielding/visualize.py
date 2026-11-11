@@ -196,24 +196,33 @@ def visualize(
                     paused = True
                     state = net.get_init_state()
                     step = 0
+                if event.key == pygame.K_t:
+                    print('current state:', state)
 
         if not paused or manual_step:
-            # FIXME: If any agent has a policy, all of them must have a policy. Use mapping similar to shields?
-            if policy is not None:
-                actions = tuple(int(a) for a in policy(shields, state))
-            else:
-                # Random action allowed by shield
-                actions = tuple(
-                    random.choice(shields[car.id].get_safe_actions(state))
-                    if car.id in shields
-                    else random.randrange(net.get_agent_action_count(state, car.id))
-                    for car in net.cars
-                )
-            successors = net.get_successors(state, actions)
-            state = random.choices(successors, weights=[s.chance for s in successors], k=1)[0].state
+            try:
+                # FIXME: If any agent has a policy, all of them must have a policy. Use mapping similar to shields?
+                if policy is not None:
+                    actions = tuple(int(a) for a in policy(shields, state))
+                else:
+                    # Random action allowed by shield
+                    actions = tuple(
+                        random.choice(shields[car.id].get_safe_actions(state))
+                        if car.id in shields
+                        else random.randrange(net.get_agent_action_count(state, car.id))
+                        for car in net.cars
+                    )
 
-            step += 1
-            if step == steps:
+                    successors = net.get_successors(state, actions)
+                    state = random.choices(successors, weights=[s.chance for s in successors], k=1)[0].state
+
+                    step += 1
+                    if step == steps:
+                        paused = True
+
+            except IndexError as e:
+                print(f'Failed to choose next actions:', e)
+                print(f'state: {state}')
                 paused = True
 
         screen.fill(BACKGROUND)

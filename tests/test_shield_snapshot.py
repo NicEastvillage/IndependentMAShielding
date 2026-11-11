@@ -27,12 +27,12 @@ from imashielding.roads import RoadNetwork
 from imashielding.roads_reduction import AbstractRoadNetworkSystem, road_safety
 from imashielding.shield import compute_shield
 
-# Fingerprint of the pre-optimisation implementation (2026-11-05).
+# Fingerprint after fixing the fault attribution in ``road_safety`` (2026-11-10)
 DEFAULT_CROSSING_FINGERPRINT = (
-    "7b48622f5b57c86b75fc22d64a1c35ab22e28f7890e3f6b7ea6e26803bafafbc"
+    "2a0711e3d8cca2751e0cac401256831934b06a4b1c429eb3629833d3d231afd4"
 )
-DEFAULT_CROSSING_STATES = 104_993
-DEFAULT_CROSSING_RELEASE_STATES = 1_323
+DEFAULT_CROSSING_STATES = 104_871
+DEFAULT_CROSSING_RELEASE_STATES = 1_797
 
 
 def shield_fingerprint(shield):

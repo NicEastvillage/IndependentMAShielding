@@ -35,7 +35,7 @@ class AbstractRoundaboutSystem(LabelledTransitionSystem[AbstractRoundaboutState]
     def get_cache_key(self) -> str:
         return f'{type(self).__qualname__}:{_network_cache_key(self._system)}'
 
-    def get_init_state(self) -> List[AbstractRoundaboutState]:
+    def get_init_states(self) -> List[AbstractRoundaboutState]:
         s = self._system.get_init_state()
         return [self.normalize(s, 0)]
 
@@ -104,7 +104,7 @@ class AbstractRoadNetworkSystem(LabelledTransitionSystem[AbstractRoadNetworkStat
     def get_cache_key(self) -> str:
         return f'{type(self).__qualname__}:{_network_cache_key(self._system)}'
 
-    def get_init_state(self) -> List[AbstractRoadNetworkState]:
+    def get_init_states(self) -> List[AbstractRoadNetworkState]:
         s = self._system.get_init_state()
         return [self.normalize(s, c.id) for c in self._system.cars]
 
@@ -168,9 +168,12 @@ class AbstractRoadNetworkSystem(LabelledTransitionSystem[AbstractRoadNetworkStat
             # to its position. Handles cars behind the ego on the same segment too.
             return dist_start[car.road] + car.pos
 
+        # Keep the ego first when another car shares its cell (distance 0).
+        # ``road_safety`` uses id 0 to identify the ego, so a tie broken by the
+        # original id would attribute the collision to the wrong car.
         cars_by_dist = sorted(
             ((distance_ahead(car), car) for car in state.cars),
-            key=lambda t: (t[0], t[1].id),
+            key=lambda t: (t[0], t[1].id != ego.id, t[1].id),
         )
 
         new_cars = ()
@@ -186,6 +189,31 @@ class AbstractRoadNetworkSystem(LabelledTransitionSystem[AbstractRoadNetworkStat
 
 
 def road_safety(system: RoadNetwork, min_dist: int = 3, merge_space: int = 8):
+
+    # Check if min_dist is too small with the possible speeds.
+    # We can determine if a crash happened (using relative speeds)
+    # if max_vel - min_vel < 2 * min_dist
+    max_relative_vel = system.max_vel - system.min_vel
+    if max_relative_vel >= 2 * min_dist:
+        raise ValueError(
+            "road_safety cannot guarantee that overtaking is unsafe: "
+            f"max_vel - min_vel = {max_relative_vel} must be smaller than "
+            f"2 * min_dist = {2 * min_dist} "
+            f"(max_vel={system.max_vel}, min_vel={system.min_vel}, "
+            f"min_dist={min_dist}). A car could jump over the safety gap "
+            "in a single step."
+        )
+
+    def fault_of(ahead_car: CarState, follow_car: CarState) -> CarState:
+        """Return the car responsible for a gap between two close cars.
+
+        The faster car caused the gap: a faster car behind is closing in, while
+        a faster car ahead is pulling away or has just overtaken.  On equal
+        speeds the follower is at fault, because it is the one that must keep
+        its distance.
+        """
+        return follow_car if follow_car.vel >= ahead_car.vel else ahead_car
+
     def func(state: RoadNetworkState) -> StateSafety:
         if len(state.cars) <= 1:
             return StateSafety.SAFE
@@ -210,6 +238,9 @@ def road_safety(system: RoadNetwork, min_dist: int = 3, merge_space: int = 8):
                 if at_fault.id == 0:
                     return StateSafety.UNSAFE
                 somebody_else_messed_up = True
+                # The collision has been attributed; do not also apply the
+                # following-distance rule to the same pair.
+                continue
 
             if front_car.just_merged:
                 # Front car must ensure space behind him on priority road
@@ -223,7 +254,7 @@ def road_safety(system: RoadNetwork, min_dist: int = 3, merge_space: int = 8):
                     # Assumption: Road segments are longer than merge_space
                     behind_road = system.roads[behind_car.road]
                     front_road = system.roads[front_car.road]
-                    if front_car.pos <= merge_space:
+                    if front_car.pos >= merge_space:
                         continue
                     if front_road.start != behind_road.id:
                         continue
@@ -234,11 +265,17 @@ def road_safety(system: RoadNetwork, min_dist: int = 3, merge_space: int = 8):
                         somebody_else_messed_up = True
 
             else:
-                # Behind car must ensure space ahead of him
+                # Behind car must ensure space ahead of him (unless front car just overtook this step)
                 if behind_car.road == front_car.road:
-                    dist = front_car.pos - behind_car.pos
-                    if 0 <= dist < min_dist:
-                        if behind_car.id == 0:
+                    dist = abs(front_car.pos - behind_car.pos)
+                    if dist < min_dist:
+                        # Due to road loops, behind car might be "in front".
+                        if behind_car.pos > front_car.pos:
+                            at_fault = front_car if front_car.vel >= behind_car.vel else behind_car
+                        else:
+                            at_fault = behind_car if behind_car.vel >= front_car.vel else front_car
+
+                        if at_fault.id == 0:
                             return StateSafety.UNSAFE   # Ego messed up
                         somebody_else_messed_up = True
                 else:
@@ -251,11 +288,13 @@ def road_safety(system: RoadNetwork, min_dist: int = 3, merge_space: int = 8):
                         continue
                     dist = seg_remaining + front_car.pos
                     if 0 <= dist < min_dist:
-                        if behind_car.id == 0:
+                        at_fault = behind_car if behind_car.vel >= front_car.vel else front_car
+                        if at_fault.id == 0:
                             return StateSafety.UNSAFE   # Ego messed up
                         somebody_else_messed_up = True
 
         return StateSafety.SAFE_RELEASE if somebody_else_messed_up else StateSafety.SAFE
 
-    func.shield_cache_key = f'road_safety(min_dist={min_dist},merge_space={merge_space})'
+    # ``v2`` invalidates caches produced by the previous fault attribution.
+    func.shield_cache_key = f'road_safety(v2,min_dist={min_dist},merge_space={merge_space})'
     return func

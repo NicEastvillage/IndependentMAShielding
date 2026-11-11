@@ -37,13 +37,16 @@ def reference_shield(
     the returned safe-action map has no entry for them.  The initial state is
     assumed to be safe, which every scenario used by the tests satisfies.
     """
-    init = system.get_init_state()
-    verdict: Dict[ABS_STATE, StateSafety] = {init: safe_func(init)}
-    if verdict[init] is not StateSafety.SAFE:
-        raise AssertionError("the reference oracle expects a SAFE initial state")
+    init_states = system.get_init_states()
 
+    verdict: Dict[ABS_STATE, StateSafety] = {}
     successors: SuccessorMap = {}
-    queue = deque([init])
+    queue = deque()
+    for init in init_states:
+        verdict[init] = safe_func(init)
+        if verdict[init] is not StateSafety.SAFE:
+            raise AssertionError("the reference oracle expects SAFE initial states")
+        queue.append(init)
     while queue:
         state = queue.popleft()
         if verdict[state] is not StateSafety.SAFE:

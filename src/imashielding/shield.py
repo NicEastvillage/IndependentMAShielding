@@ -110,6 +110,16 @@ class NormalizingShield(Shield[STATE]):
         return self._shield.contains(self._normalize(state))
 
 
+def _as_state_list(states: Any) -> list:
+    """Normalise ``get_init_state`` to a list of states.
+
+    The interface specifies a list, but toy systems in tests (and callers that
+    have a single initial state) often return the state directly.  Treating
+    every non-list value as one state also avoids iterating over a string.
+    """
+    return states if isinstance(states, list) else [states]
+
+
 def _resolve_cache_key(
     system: LabelledTransitionSystem[ABS_STATE],
     safe_func: Callable[[ABS_STATE], StateSafety],
@@ -184,7 +194,7 @@ def compute_shield(
         if cache_path.is_file():
             try:
                 shield = DGShield.load(cache_path)
-                init_states = system.get_init_state()
+                init_states = system.get_init_states()
                 for init_state in init_states:
                     if not shield.contains(init_state):
                         raise ShieldCacheError(
@@ -209,7 +219,7 @@ def compute_shield(
     print('Computing shield...')
     start_time = time.time()
 
-    init_states = system.get_init_state()
+    init_states = system.get_init_states()
 
     builder = ShieldGraphBuilder()
 
@@ -225,16 +235,16 @@ def compute_shield(
 
     REPORT_INTERVAL_SEC = 60
     last_report = time.time()
-    report_new_state_count = 0
+    report_explored_state_count = 0
     report_unsafe_state_count = 0
     report_release_state_count = 0
 
     while explore_stack or update_stack:
         if last_report + REPORT_INTERVAL_SEC < time.time():
             timestamp = datetime.datetime.now()
-            print(f'{timestamp.strftime('%H:%M')} new={report_new_state_count:>7}, unsafe={report_unsafe_state_count:>7}, release={report_release_state_count:>7}')
+            print(f'{timestamp.strftime('%H:%M')} new={report_explored_state_count:>7}, unsafe={report_unsafe_state_count:>7}, release={report_release_state_count:>7}')
             last_report = time.time()
-            report_new_state_count = 0
+            report_explored_state_count = 0
             report_unsafe_state_count = 0
             report_release_state_count = 0
 
@@ -263,6 +273,7 @@ def compute_shield(
         elif color == UNEXPLORED:
             # Generate successors of this state. Any new states are added to the
             # graph and queued for exploration.
+            report_explored_state_count += 1
             state = builder.states[state_id]
             action_count = system.get_action_count(state)
             builder.begin_actions(state_id, action_count)
@@ -293,6 +304,7 @@ def compute_shield(
                             explore_stack.append(successor_id)
                         elif verdict == StateSafety.SAFE_RELEASE:
                             # No need to explore.
+                            report_release_state_count += 1
                             builder.colors[successor_id] = SAFE
                             builder.released[successor_id] = 1
                             release_count += 1
@@ -313,6 +325,7 @@ def compute_shield(
                     any_safe = True
 
             if not any_safe:
+                report_unsafe_state_count += 1
                 builder.colors[state_id] = UNSAFE
                 unsafe_count += 1
                 _propagate_unsafe(builder, state_id, update_stack)

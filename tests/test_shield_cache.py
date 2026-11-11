@@ -30,7 +30,7 @@ class ShieldCacheTest(unittest.TestCase):
         )
         self.system = AbstractRoundaboutSystem(self.network)
         self.safety = roundabout_safety(2)
-        self.init = self.system.get_init_state()
+        self.init = self.system.get_init_states()[0]
 
     def tearDown(self):
         self._env.stop()

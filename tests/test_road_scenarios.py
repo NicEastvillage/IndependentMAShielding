@@ -106,7 +106,8 @@ class RoundaboutNormalizationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="imashielding-test-") as cache_dir:
             shield = compute(system, safety, cache_dir=cache_dir)
         assert_matches_reference(self, system, safety, shield)
-        self.assertTrue(shield.get_safe_actions(system.get_init_state()))
+        for init in system.get_init_states():
+            self.assertTrue(shield.get_safe_actions(init))
 
 
 class RoadSafetyAttributionTest(unittest.TestCase):
@@ -146,6 +147,36 @@ class RoadSafetyAttributionTest(unittest.TestCase):
         state = RoadNetworkState((car(0, road=0, pos=10), car(1, road=0, pos=9)))
         self.assertIs(self.safety(state), StateSafety.SAFE_RELEASE)
 
+    def test_ego_overtaking_a_slower_car_is_unsafe(self):
+        # The ego is physically ahead of the other car (the abstraction wraps
+        # that car to "in front") and is still faster: it just overtook.
+        state = RoadNetworkState(
+            (car(0, road=0, pos=10, vel=2), car(1, road=0, pos=9, vel=1))
+        )
+        self.assertIs(self.safety(state), StateSafety.UNSAFE)
+
+    def test_ego_being_overtaken_is_a_release(self):
+        # The other car moved in front of the ego and is faster: it is the
+        # overtaker and therefore the one at fault.
+        state = RoadNetworkState(
+            (car(0, road=0, pos=9, vel=1), car(1, road=0, pos=10, vel=2))
+        )
+        self.assertIs(self.safety(state), StateSafety.SAFE_RELEASE)
+
+    def test_another_car_rear_ending_the_ego_is_a_release(self):
+        # Same cell, but the other car is the faster one.  This must not fall
+        # through to the following-distance rule and blame the ego.
+        state = RoadNetworkState(
+            (car(0, road=0, pos=5, vel=1), car(1, road=0, pos=5, vel=2))
+        )
+        self.assertIs(self.safety(state), StateSafety.SAFE_RELEASE)
+
+    def test_ego_rear_ending_another_car_is_unsafe(self):
+        state = RoadNetworkState(
+            (car(0, road=0, pos=5, vel=2), car(1, road=0, pos=5, vel=1))
+        )
+        self.assertIs(self.safety(state), StateSafety.UNSAFE)
+
     def test_merging_ego_must_leave_space_behind(self):
         # The ego recently merged in front of another car and left less than
         # merge_space: this is the ego's fault.
@@ -166,6 +197,63 @@ class RoadSafetyAttributionTest(unittest.TestCase):
         )
         # Gap = 18 cells, well above merge_space.
         self.assertIs(self.safety(state), StateSafety.SAFE)
+
+
+class CrossRoadMergeTest(unittest.TestCase):
+    """Cross-road merge checks (the merging car is on the next segment)."""
+
+    def setUp(self):
+        # Road 0 is the priority feeder into road 1.  A car that merges onto
+        # road 1 must leave ``merge_space`` behind it.
+        self.network = RoadNetwork(
+            roads=(
+                RoadSegment(0, length=20, end_left=1, end_right=1, start=0),
+                RoadSegment(1, length=20, end_left=0, end_right=0, start=0),
+            ),
+            cars=(
+                CarDef(0, 1, 0),
+                CarDef(1, 0, 0),
+            ),
+            max_vel=2,
+            min_vel=0,
+            accel_actions=((ChancedOutcomeAccel(1.0, 0),),),
+        )
+        self.safety = road_safety(self.network, min_dist=3, merge_space=8)
+
+    def test_merging_ego_too_close_to_priority_car_is_unsafe(self):
+        # Ego (id 0) just merged onto road 1 at pos 0; the priority car (id 1)
+        # is about to reach the merge point.  gap = 20 - 19 + 0 = 1.
+        state = RoadNetworkState(
+            (
+                car(0, road=1, pos=0, vel=1, just_merged=True),
+                car(1, road=0, pos=19, vel=1),
+            )
+        )
+        self.assertIs(self.safety(state), StateSafety.UNSAFE)
+
+    def test_merging_ego_with_enough_space_is_safe(self):
+        state = RoadNetworkState(
+            (
+                car(0, road=1, pos=0, vel=1, just_merged=True),
+                car(1, road=0, pos=10, vel=1),
+            )
+        )
+        # gap = 20 - 10 + 0 = 10 >= merge_space.
+        self.assertIs(self.safety(state), StateSafety.SAFE)
+
+
+class RoadNetworkNormalizationTest(unittest.TestCase):
+    def test_ego_stays_first_when_cars_share_a_cell(self):
+        network = RoadNetwork.create_crossing_roads_scenario(car_count=2)
+        system = AbstractRoadNetworkSystem(network)
+        state = RoadNetworkState(
+            (car(0, road=0, pos=3, vel=1), car(1, road=0, pos=3, vel=2))
+        )
+        # From car 1's POV the ego must be re-indexed to 0 even though car 0
+        # has the smaller original id.
+        view = system.normalize(state, 1)
+        self.assertEqual(view.cars[0].vel, 2)
+        self.assertEqual(view.cars[1].vel, 1)
 
 
 class CrossingRoadsTest(unittest.TestCase):
@@ -225,7 +313,8 @@ class DoubleRoundaboutTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="imashielding-test-") as cache_dir:
             shield = compute(system, safety, cache_dir=cache_dir)
         assert_matches_reference(self, system, safety, shield)
-        self.assertTrue(shield.get_safe_actions(system.get_init_state()))
+        for init in system.get_init_states():
+            self.assertTrue(shield.get_safe_actions(init))
 
 
 if __name__ == "__main__":

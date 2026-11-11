@@ -36,7 +36,7 @@ class ToySystem(LabelledTransitionSystem[str]):
         self._transitions = dict(transitions)
         self._action_count = action_count
 
-    def get_init_state(self):
+    def get_init_states(self):
         return self._init
 
     def get_abstract_successor_states(self, state, action):

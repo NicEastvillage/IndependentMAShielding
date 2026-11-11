@@ -24,7 +24,7 @@ class ConcurrentGame(Generic[STATE]):
 
 
 class LabelledTransitionSystem(Generic[ABS_STATE]):
-    def get_init_state(self) -> List[ABS_STATE]:
+    def get_init_states(self) -> List[ABS_STATE]:
         raise NotImplementedError()
 
     def get_abstract_successor_states(self, state: ABS_STATE, action: int) -> Tuple[ABS_STATE, ...]:
