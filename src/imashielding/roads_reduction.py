@@ -164,16 +164,13 @@ class AbstractRoadNetworkSystem(LabelledTransitionSystem[AbstractRoadNetworkStat
             # Ahead on the ego's own segment: the simple forward gap.
             if car.road == ego.road and car.pos >= ego.pos:
                 return car.pos - ego.pos
-            # Otherwise loop around: reach the start of the car's segment, then travel
-            # to its position. Handles cars behind the ego on the same segment too.
+            # Otherwise loop around: reach the start of the car's segment, then travel to its position.
             return dist_start[car.road] + car.pos
 
-        # Keep the ego first when another car shares its cell (distance 0).
-        # ``road_safety`` uses id 0 to identify the ego, so a tie broken by the
-        # original id would attribute the collision to the wrong car.
+        # First item must be ego (id 0), even if another car shares its cell
         cars_by_dist = sorted(
             ((distance_ahead(car), car) for car in state.cars),
-            key=lambda t: (t[0], t[1].id != ego.id, t[1].id),
+            key=lambda t: (t[0], t[1].id != ego.id, t[1].road, t[1].pos, t[1].vel, t[1].just_merged),
         )
 
         new_cars = ()
@@ -203,16 +200,6 @@ def road_safety(system: RoadNetwork, min_dist: int = 3, merge_space: int = 8):
             f"min_dist={min_dist}). A car could jump over the safety gap "
             "in a single step."
         )
-
-    def fault_of(ahead_car: CarState, follow_car: CarState) -> CarState:
-        """Return the car responsible for a gap between two close cars.
-
-        The faster car caused the gap: a faster car behind is closing in, while
-        a faster car ahead is pulling away or has just overtaken.  On equal
-        speeds the follower is at fault, because it is the one that must keep
-        its distance.
-        """
-        return follow_car if follow_car.vel >= ahead_car.vel else ahead_car
 
     def func(state: RoadNetworkState) -> StateSafety:
         if len(state.cars) <= 1:
