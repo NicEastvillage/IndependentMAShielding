@@ -187,6 +187,10 @@ class AbstractRoadNetworkSystem(LabelledTransitionSystem[AbstractRoadNetworkStat
 
 def road_safety(system: RoadNetwork, min_dist: int = 3, merge_space: int = 8):
 
+    assert min_dist > 0
+    assert merge_space > 0
+    assert merge_space + system.max_vel > min_dist
+
     # Check if min_dist is too small with the possible speeds.
     # We can determine if a crash happened (using relative speeds)
     # if max_vel - min_vel < 2 * min_dist
@@ -201,15 +205,131 @@ def road_safety(system: RoadNetwork, min_dist: int = 3, merge_space: int = 8):
             "in a single step."
         )
 
+    for road in system.roads:
+        if road.length < min_dist:
+            raise ValueError(
+                f"A road is smaller than min_dist. "
+                f"Current implementation does not support it. "
+                f"road {road.id}, length {road.length}, min_dist {min_dist}. "
+            )
+        if road.length < merge_space and road.end_left == road.end_right:
+            raise ValueError(
+                f"A road ending in a merge is shorter than merge_space. "
+                f"Current implementation does not support it."
+                f"road {road.id}, length {road.length}, merge_space {merge_space}. "
+            )
+
     def func(state: RoadNetworkState) -> StateSafety:
         if len(state.cars) <= 1:
             return StateSafety.SAFE
 
-        # Property: distToNonMergingCarInFront >= min_dist && just_merged implies distToCarBehind >= merge_space
+        # Property:
+        # (ego.just_merged implies dist_to_nearest_car_behind_or_eq_on_priority_road >= merge_dist)
+        # AND
+        # (
+        #     dist_to_nearest_car_ahead_or_eq >= min_dist
+        #     AND
+        #     (
+        #         dist(ego, other) < min_dist
+        #         implies
+        #         other.just_merged
+        #         OR
+        #         yield_line_between(ego, other)
+        #         OR
+        #         other.vel > ego.vel      # Other car closed the gap
+        #     )
+        # )
 
         somebody_else_messed_up = False
 
-        # Assumption: Cars are sorted by dist to ego (id 0)
+        for focus in state.cars:
+            for other in state.cars:
+                if focus.id == other.id:
+                    continue
+
+                if somebody_else_messed_up and focus.id != 0:
+                    # We only need to check ego (id 0) from now on
+                    continue
+
+                if focus.road == other.road:
+                    # We can get away with a lot of easy checks when they are on the same road
+                    if focus.just_merged:
+                        if focus.pos >= other.pos and focus.pos - other.pos < merge_space:
+                            if focus.id == 0:
+                                return StateSafety.UNSAFE
+                            else:
+                                somebody_else_messed_up = True
+                                continue
+
+                    dist = abs(focus.pos - other.pos)
+                    if dist < min_dist and not other.just_merged:
+                        if focus.vel >= other.vel or focus.just_merged:
+                            if focus.id == 0:
+                                return StateSafety.UNSAFE
+                            else:
+                                somebody_else_messed_up = True
+                                continue
+
+                    continue
+
+                # They are on different roads
+
+                # Main Q: What is the distance between the cars?
+                #   If focus car just merged, when we want to look merge_space backwards.
+                #   Otherwise, we need to look min_dist forwards and backwards.
+                #   If the distance is greater than that, we can skip.
+                #   By assumption, all merging roads are longer than min_dist, so we
+                #   only look at neighboring road segments
+
+                # Backwards - We only need to look at incoming roads behind the focus car if the car is
+                # close to the start of the segment
+                if focus.pos < min_dist:
+                    if system.roads[other.road].end_right == focus.road or system.roads[other.road].end_left == focus.road:
+                        dist = focus.pos + system.roads[other.road].length - other.pos
+                        yield_line_between = (
+                                system.roads[other.road].end_right == system.roads[other.road].end_left
+                                and system.roads[focus.road].start != other.road
+                        )
+                        other_on_priority = system.roads[focus.road].start == other.road
+
+                        # Merging
+                        if focus.just_merged and dist < merge_space and other_on_priority:
+                            if focus.id == 0:
+                                return StateSafety.UNSAFE
+                            else:
+                                somebody_else_messed_up = True
+                                continue
+
+                        # Small dist case
+                        if not yield_line_between and dist < min_dist and focus.vel >= other.vel:
+                            if focus.id == 0:
+                                return StateSafety.UNSAFE
+                            else:
+                                somebody_else_messed_up = True
+                                continue
+
+                # Forwards - We only need to look at outgoing roads in front of the focus car if the
+                # car is close to the end of the segment
+                if system.roads[focus.road].length - focus.pos < min_dist:
+                    if system.roads[focus.road].end_right == other.road or system.roads[focus.road].end_left == other.road:
+                        dist = system.roads[focus.road].length - focus.pos + other.pos
+                        yield_line_between = (
+                                system.roads[focus.road].end_right == system.roads[focus.road].end_left
+                                and system.roads[other.road].start != focus.road
+                        )
+
+                        # just_merged case is not relevant for forward
+
+                        # Small dist case
+                        if not yield_line_between and dist < min_dist and focus.vel >= other.vel and not other.just_merged:
+                            if focus.id == 0:
+                                return StateSafety.UNSAFE
+                            else:
+                                somebody_else_messed_up = True
+                                continue
+
+        return StateSafety.SAFE_RELEASE if somebody_else_messed_up else StateSafety.SAFE
+
         for i in range(len(state.cars)):    # FIXME: IT IS LIKELY NOT ENOUGH TO ONLY CHECK CONSECUTIVE PAIRS :(
             behind_car = state.cars[i]
             front_car = state.cars[(i + 1) % len(state.cars)]
@@ -282,6 +402,5 @@ def road_safety(system: RoadNetwork, min_dist: int = 3, merge_space: int = 8):
 
         return StateSafety.SAFE_RELEASE if somebody_else_messed_up else StateSafety.SAFE
 
-    # ``v2`` invalidates caches produced by the previous fault attribution.
-    func.shield_cache_key = f'road_safety(v2,min_dist={min_dist},merge_space={merge_space})'
+    func.shield_cache_key = f'road_safety(v3,min_dist={min_dist},merge_space={merge_space})'
     return func

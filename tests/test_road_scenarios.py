@@ -141,10 +141,10 @@ class RoadSafetyAttributionTest(unittest.TestCase):
         state = RoadNetworkState((car(0, road=0, pos=5), car(1, road=0, pos=6)))
         self.assertIs(self.safety(state), StateSafety.UNSAFE)
 
-    def test_another_car_tailgating_the_ego_is_a_release(self):
+    def test_another_faster_car_tailgating_the_ego_is_a_release(self):
         # cars[1] is behind the ego (cars[0]) with too small a gap.  The ego is
         # not at fault, so the property is released instead of violated.
-        state = RoadNetworkState((car(0, road=0, pos=10), car(1, road=0, pos=9)))
+        state = RoadNetworkState((car(0, road=0, pos=10), car(1, road=0, pos=8, vel=1)))
         self.assertIs(self.safety(state), StateSafety.SAFE_RELEASE)
 
     def test_ego_overtaking_a_slower_car_is_unsafe(self):
