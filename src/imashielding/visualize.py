@@ -255,12 +255,12 @@ def visualize(
                         for car in net.cars
                     )
 
-                    successors = net.get_successors(state, actions)
-                    state = random.choices(successors, weights=[s.chance for s in successors], k=1)[0].state
+                successors = net.get_successors(state, actions)
+                state = random.choices(successors, weights=[s.chance for s in successors], k=1)[0].state
 
-                    step += 1
-                    if step == steps:
-                        paused = True
+                step += 1
+                if step == steps:
+                    paused = True
 
             except IndexError as e:
                 print(f'Failed to choose next actions:', e)
