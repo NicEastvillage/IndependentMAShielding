@@ -6,7 +6,7 @@ from typing import Callable, Optional, Tuple, Mapping
 
 import pygame
 
-from imashielding.roads import RoadNetwork, RoadNetworkState
+from imashielding.roads import RoadNetwork, RoadNetworkState, RoadSegment
 from imashielding.shapes import Arc, Straight
 from imashielding.shield import Shield
 
@@ -29,8 +29,14 @@ BRAKE_LATERAL = CAR_WIDTH * 0.5 * 0.8
 BRAKE_REAR = CAR_LENGTH * 0.5 * 0.9
 BRAKE_RADIUS = 0.01
 
+YIELD_TRIANGLE_COUNT = 3
+YIELD_TRIANGLE_BASE = ROAD_WIDTH * 0.24
+YIELD_TRIANGLE_DEPTH = ROAD_WIDTH * 0.3
+YIELD_TRIANGLE_PITCH = ROAD_WIDTH / YIELD_TRIANGLE_COUNT
+
 BACKGROUND = (16, 18, 24)
 ASPHALT_COLOR = (55, 58, 66)
+YIELD_COLOR = (255, 255, 255)
 WINDSHIELD_COLOR = (140, 190, 235)
 HEADLIGHT_COLOR = (255, 236, 160)
 BRAKE_COLOR = (220, 30, 30)
@@ -103,6 +109,42 @@ def draw_roads(surface: pygame.Surface, net: RoadNetwork, view: View):
                 start = view.point(straight.start)
                 end = view.point(straight.end)
                 pygame.draw.line(surface, ASPHALT_COLOR, start, end, int(width))
+
+
+def yielding_roads(net: RoadNetwork) -> Tuple[RoadSegment, ...]:
+    """Segments whose end must give way to the road they merge onto.
+
+    Mirrors the ``yield_line_between`` condition in ``road_safety``: a
+    segment that merges (both exits lead to the same road) into a road that
+    does not continue from it.
+    """
+    return tuple(
+        segment for segment in net.roads
+        if segment.end_left == segment.end_right
+        and net.roads[segment.end_left].start != segment.id
+    )
+
+
+def draw_yield_lines(surface: pygame.Surface, net: RoadNetwork, view: View):
+    """Draw shark teeth across the end of every yielding segment."""
+    half_base = YIELD_TRIANGLE_BASE / 2
+    for segment in yielding_roads(net):
+        (end_x, end_y), heading = segment.shape.frame(1.0 - 0.55 / segment.length)
+        fx, fy = math.cos(heading), math.sin(heading)
+        nx, ny = -fy, fx
+
+        for i in range(YIELD_TRIANGLE_COUNT):
+            lateral = (i - (YIELD_TRIANGLE_COUNT - 1) / 2) * YIELD_TRIANGLE_PITCH
+            base_left = (end_x + nx * (lateral - half_base), end_y + ny * (lateral - half_base))
+            base_right = (end_x + nx * (lateral + half_base), end_y + ny * (lateral + half_base))
+            # The apex points back towards approaching traffic, so the marking
+            # occupies the last bit of asphalt before the junction.
+            apex = (end_x - fx * YIELD_TRIANGLE_DEPTH + nx * lateral,
+                    end_y - fy * YIELD_TRIANGLE_DEPTH + ny * lateral)
+            pygame.draw.polygon(
+                surface, YIELD_COLOR,
+                [view.point(base_left), view.point(base_right), view.point(apex)],
+            )
 
 
 def draw_cars(surface: pygame.Surface, system: RoadNetwork, state: RoadNetworkState, view: View, font: pygame.font.Font):
@@ -227,6 +269,7 @@ def visualize(
 
         screen.fill(BACKGROUND)
         draw_roads(screen, net, view)
+        draw_yield_lines(screen, net, view)
         draw_cars(screen, net, state, view, font)
         pygame.display.flip()
         clock.tick(fps)

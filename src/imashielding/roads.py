@@ -96,7 +96,7 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
     @staticmethod
     def create_double_roundabout_scenario(car_count: int = 6, road_per_roundabout: int = 32, max_vel: int = 4) -> "RoadNetwork":
         road_dist = 2.4
-        straight_radius = 10.0
+        straight_radius = 3.0
         straight_y_offset = math.sqrt(straight_radius**2 - (road_dist / 2)**2)
         straight_sweep = math.acos(straight_y_offset / straight_radius)
         roads = (
