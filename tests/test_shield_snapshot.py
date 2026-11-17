@@ -27,12 +27,13 @@ from imashielding.roads import RoadNetwork
 from imashielding.roads_reduction import AbstractRoadNetworkSystem, road_safety
 from imashielding.shield import compute_shield
 
-# Fingerprint after fixing the fault attribution in ``road_safety`` (2026-11-10)
+# Fingerprint after making the right crossing road 10% shorter than the left
+# one (2026-11-13).
 DEFAULT_CROSSING_FINGERPRINT = (
-    "2a0711e3d8cca2751e0cac401256831934b06a4b1c429eb3629833d3d231afd4"
+    "4b04ba071adbd99783bb36bc714fb1938fe5ed24ca68e9d7a10ef01b02d8022c"
 )
-DEFAULT_CROSSING_STATES = 104_871
-DEFAULT_CROSSING_RELEASE_STATES = 1_797
+DEFAULT_CROSSING_STATES = 94_771
+DEFAULT_CROSSING_RELEASE_STATES = 1_740
 
 
 def shield_fingerprint(shield):

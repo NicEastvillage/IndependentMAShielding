@@ -125,19 +125,64 @@ class RoadNetwork(ConcurrentGame[RoadNetworkState]):
         return RoadNetwork(roads, cars, max_vel, 0, accel_actions)
 
     @staticmethod
-    def create_crossing_roads_scenario(car_count: int = 4, road_length_circ: int = 36, max_vel: int = 4) -> "RoadNetwork":
+    def create_crossing_roads_scenario(
+        car_count: int = 4,
+        road_length_circ: int = 36,
+        max_vel: int = 4,
+        right_road_scale: float = 0.8,
+    ) -> "RoadNetwork":
+        """Two looping roads joined by a straight middle road.
+
+        The right-hand loop is ``right_road_scale`` times as long as the
+        left-hand loop.
+        """
+        assert 0.0 < right_road_scale <= 1.0
+
         angle = math.pi / 6.0
         radius = round(road_length_circ / math.tau)
         road_length_arc = round(road_length_circ - 2 * angle * radius)
+        road_length_arc_right = max(1, round(road_length_arc * right_road_scale))
         road_length_middle = round(2 * math.sin(angle) * radius)
+
         vis_straight_offset = math.sin(angle)
         vis_arc_center_offset = math.cos(angle)
+        left_arc_sweep = math.tau - 2 * angle
+
+        # Both arcs connect the endpoints (0, -vis_straight_offset) and
+        # (0, vis_straight_offset).  A circle with radius r through those
+        # points covers a major arc of length r * (tau - 2 * asin(offset / r)).
+        # Shrink the right circle until its drawn arc is shorter by the same
+        # factor as its discrete road length, keeping both junctions fixed.
+        right_road_ratio = road_length_arc_right / road_length_arc
+        target_right_arc_length = right_road_ratio * left_arc_sweep  # left radius is 1
+        assert target_right_arc_length > vis_straight_offset * math.pi  # feasible for r > offset
+
+        lo, hi = vis_straight_offset, 1.0
+        for _ in range(64):
+            mid = (lo + hi) / 2.0
+            arc_length = mid * (math.tau - 2 * math.asin(vis_straight_offset / mid))
+            if arc_length < target_right_arc_length:
+                lo = mid
+            else:
+                hi = mid
+        right_arc_radius = (lo + hi) / 2.0
+        right_arc_center_offset = math.sqrt(right_arc_radius ** 2 - vis_straight_offset ** 2)
+        right_arc_start = math.pi - math.asin(vis_straight_offset / right_arc_radius)
+        right_arc_sweep = -(math.tau - 2 * math.asin(vis_straight_offset / right_arc_radius))
+
         roads = (
             RoadSegment(0, road_length_middle, 1, 2, 1, 0, Straight((0.0, -vis_straight_offset), (0.0, vis_straight_offset))),
-            RoadSegment(1, road_length_arc, 0, 0, 0, None, Arc((-vis_arc_center_offset, 0.0), 1.0, angle, math.tau - 2 * angle)),
-            RoadSegment(2, road_length_arc, 0, 0, 0, None, Arc((vis_arc_center_offset, 0.0), 1.0, math.pi - angle, -(math.tau - 2 * angle))),
+            RoadSegment(1, road_length_arc, 0, 0, 0, None, Arc((-vis_arc_center_offset, 0.0), 1.0, angle, left_arc_sweep)),
+            RoadSegment(2, road_length_arc_right, 0, 0, 0, None, Arc((right_arc_center_offset, 0.0), right_arc_radius, right_arc_start, right_arc_sweep)),
         )
-        cars = tuple(CarDef(i, 1 + i % 2, int(road_length_arc * i / float(car_count))) for i in range(car_count))
+        cars = tuple(
+            CarDef(
+                i,
+                1 + i % 2,
+                int((road_length_arc if i % 2 == 0 else road_length_arc_right) * i / float(car_count)),
+            )
+            for i in range(car_count)
+        )
         # Acceleration is usually within [-1..1] but there is a 20% chance for a 100% increase
         accel_actions = (
             (

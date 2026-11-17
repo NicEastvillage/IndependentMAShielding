@@ -256,6 +256,34 @@ class RoadNetworkNormalizationTest(unittest.TestCase):
         self.assertEqual(view.cars[1].vel, 1)
 
 
+class CrossingRoadsGeometryTest(unittest.TestCase):
+    """The right crossing road is 10% shorter than the left one."""
+
+    def setUp(self):
+        self.network = RoadNetwork.create_crossing_roads_scenario(car_count=2)
+        self.straight = self.network.roads[0].shape
+        self.left = self.network.roads[1]
+        self.right = self.network.roads[2]
+
+    def test_right_road_length_is_ten_percent_shorter(self):
+        self.assertEqual(self.right.length, round(0.9 * self.left.length))
+
+    def test_right_arc_is_drawn_ten_percent_shorter(self):
+        left_length = abs(self.left.shape.sweep) * self.left.shape.radius
+        right_length = abs(self.right.shape.sweep) * self.right.shape.radius
+        self.assertAlmostEqual(right_length / left_length, 0.9, places=6)
+
+    def test_arcs_still_meet_the_straight_road(self):
+        for arc in (self.left.shape, self.right.shape):
+            (start_x, start_y), _ = arc.frame(0.0)
+            (end_x, end_y), _ = arc.frame(1.0)
+            with self.subTest(arc=arc):
+                self.assertAlmostEqual(start_x, self.straight.end[0])
+                self.assertAlmostEqual(start_y, self.straight.end[1])
+                self.assertAlmostEqual(end_x, self.straight.start[0])
+                self.assertAlmostEqual(end_y, self.straight.start[1])
+
+
 class CrossingRoadsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
